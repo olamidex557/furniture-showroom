@@ -12,5 +12,6 @@ export type Product = {
   dimensions: string | null;
   stock: number;
   is_available: boolean;
+  created_at?: string;
   product_images: ProductImage[];
 };

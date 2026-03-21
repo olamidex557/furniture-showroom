@@ -13,6 +13,7 @@ export async function fetchProducts(): Promise<Product[]> {
       dimensions,
       stock,
       is_available,
+      created_at,
       product_images (
         id,
         image_url
@@ -28,7 +29,7 @@ export async function fetchProducts(): Promise<Product[]> {
   return (data ?? []) as Product[];
 }
 
-export async function fetchProductById(productId: string): Promise<Product | null> {
+export async function fetchProductById(id: string): Promise<Product | null> {
   const { data, error } = await supabase
     .from("products")
     .select(`
@@ -40,13 +41,13 @@ export async function fetchProductById(productId: string): Promise<Product | nul
       dimensions,
       stock,
       is_available,
+      created_at,
       product_images (
         id,
         image_url
       )
     `)
-    .eq("id", productId)
-    .eq("is_available", true)
+    .eq("id", id)
     .maybeSingle();
 
   if (error) {
@@ -82,4 +83,39 @@ export async function fetchAppSettings(): Promise<AppSettings | null> {
   }
 
   return (data as AppSettings | null) ?? null;
+}
+
+export type OrderHistoryItem = {
+  id: string;
+  status: string;
+  delivery_method: string;
+  subtotal: number;
+  delivery_fee: number;
+  total: number;
+  phone: string | null;
+  address: string | null;
+  created_at: string;
+};
+
+export async function fetchOrders(): Promise<OrderHistoryItem[]> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select(`
+      id,
+      status,
+      delivery_method,
+      subtotal,
+      delivery_fee,
+      total,
+      phone,
+      address,
+      created_at
+    `)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []) as OrderHistoryItem[];
 }

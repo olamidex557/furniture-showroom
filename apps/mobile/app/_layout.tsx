@@ -11,6 +11,7 @@ export default function RootLayout() {
           <Stack.Screen name="product/[id]" options={{ headerShown: false }} />
           <Stack.Screen name="cart" options={{ title: "Cart" }} />
           <Stack.Screen name="checkout" options={{ title: "Checkout" }} />
+          <Stack.Screen name="orders" options={{ title: "Order History" }} />
         </Stack>
       </CartProvider>
     </AppClerkProvider>
