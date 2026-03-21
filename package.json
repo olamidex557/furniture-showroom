@@ -1,0 +1,9 @@
+{
+  "name": "furniture-showroom",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev:admin": "pnpm --dir apps/admin dev",
+    "dev:mobile": "pnpm --dir apps/mobile start"
+  }
+}
