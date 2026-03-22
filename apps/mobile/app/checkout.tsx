@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -30,6 +29,8 @@ export default function CheckoutScreen() {
     useState<DeliveryMethod>("delivery");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -65,23 +66,56 @@ export default function CheckoutScreen() {
 
   const placeOrder = async () => {
     try {
+      setErrorMessage("");
+      setSuccessMessage("");
+
       if (items.length === 0) {
-        Alert.alert("Cart is empty", "Add products before checking out.");
+        setErrorMessage("Your cart is empty. Add products before checkout.");
         return;
       }
 
       if (!phone.trim()) {
-        Alert.alert("Missing phone number", "Please enter your phone number.");
+        setErrorMessage("Please enter your phone number.");
         return;
       }
 
       if (deliveryMethod === "delivery" && !address.trim()) {
-        Alert.alert("Missing address", "Please enter your delivery address.");
+        setErrorMessage("Please enter your delivery address.");
         return;
       }
 
       setPlacingOrder(true);
 
+      // 1. Validate stock before creating order
+      for (const item of items) {
+        const { data: product, error: productError } = await supabase
+          .from("products")
+          .select("id, name, stock, is_available")
+          .eq("id", item.productId)
+          .single();
+
+        if (productError || !product) {
+          throw new Error(
+            productError?.message || `Unable to validate stock for ${item.name}.`
+          );
+        }
+
+        if (!product.is_available) {
+          throw new Error(`${product.name} is currently unavailable.`);
+        }
+
+        if (Number(product.stock) <= 0) {
+          throw new Error(`${product.name} is out of stock.`);
+        }
+
+        if (item.quantity > Number(product.stock)) {
+          throw new Error(
+            `${product.name} quantity exceeds available stock. Only ${product.stock} left.`
+          );
+        }
+      }
+
+      // 2. Create order
       const { data: insertedOrder, error: orderError } = await supabase
         .from("orders")
         .insert({
@@ -101,6 +135,7 @@ export default function CheckoutScreen() {
         throw new Error(orderError?.message || "Failed to create order.");
       }
 
+      // 3. Create order items
       const orderItemsPayload = items.map((item) => ({
         order_id: insertedOrder.id,
         product_id: item.productId,
@@ -117,22 +152,53 @@ export default function CheckoutScreen() {
         throw new Error(orderItemsError.message);
       }
 
-      clearCart();
+      // 4. Reduce stock only
+      // IMPORTANT: product remains visible even if stock becomes 0
+      for (const item of items) {
+        const { data: product, error: productError } = await supabase
+          .from("products")
+          .select("id, name, stock")
+          .eq("id", item.productId)
+          .single();
 
-      Alert.alert(
-        "Order placed",
-        "Your order has been placed successfully.",
-        [
-          {
-            text: "OK",
-            onPress: () => router.replace("/" as any),
-          },
-        ]
-      );
+        if (productError || !product) {
+          throw new Error(
+            productError?.message || `Failed to fetch stock for ${item.name}.`
+          );
+        }
+
+        const newStock = Number(product.stock) - Number(item.quantity);
+
+        if (newStock < 0) {
+          throw new Error(`Insufficient stock for ${product.name}.`);
+        }
+
+        const { error: updateError } = await supabase
+          .from("products")
+          .update({
+            stock: newStock,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", item.productId);
+
+        if (updateError) {
+          throw new Error(updateError.message);
+        }
+      }
+
+      // 5. Clear cart and show success
+      clearCart();
+      setSuccessMessage("Order successfully placed.");
+      setPhone("");
+      setAddress("");
+
+      setTimeout(() => {
+        router.replace("/" as any);
+      }, 1200);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to place order.";
-      Alert.alert("Checkout failed", message);
+      setErrorMessage(message);
     } finally {
       setPlacingOrder(false);
     }
@@ -180,6 +246,54 @@ export default function CheckoutScreen() {
         >
           Complete your order details
         </Text>
+
+        {!!successMessage && (
+          <View
+            style={{
+              backgroundColor: "#DCFCE7",
+              borderWidth: 1,
+              borderColor: "#86EFAC",
+              borderRadius: 16,
+              padding: 14,
+              marginBottom: 16,
+            }}
+          >
+            <Text
+              style={{
+                color: "#166534",
+                fontSize: 15,
+                fontWeight: "800",
+                textAlign: "center",
+              }}
+            >
+              {successMessage}
+            </Text>
+          </View>
+        )}
+
+        {!!errorMessage && (
+          <View
+            style={{
+              backgroundColor: "#FEE2E2",
+              borderWidth: 1,
+              borderColor: "#FCA5A5",
+              borderRadius: 16,
+              padding: 14,
+              marginBottom: 16,
+            }}
+          >
+            <Text
+              style={{
+                color: "#991B1B",
+                fontSize: 15,
+                fontWeight: "800",
+                textAlign: "center",
+              }}
+            >
+              {errorMessage}
+            </Text>
+          </View>
+        )}
 
         <View
           style={{

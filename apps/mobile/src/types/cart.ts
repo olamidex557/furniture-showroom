@@ -7,6 +7,7 @@ export type CartItem = {
   price: number;
   imageUrl: string | null;
   quantity: number;
+  stock: number;
 };
 
 export function productToCartItem(product: Product): CartItem {
@@ -17,5 +18,6 @@ export function productToCartItem(product: Product): CartItem {
     price: Number(product.price),
     imageUrl: product.product_images?.[0]?.image_url ?? null,
     quantity: 1,
+    stock: Number(product.stock),
   };
 }

@@ -12,7 +12,7 @@ import type { CartItem } from "../types/cart";
 type CartContextValue = {
   items: CartItem[];
   loading: boolean;
-  addToCart: (item: CartItem) => void;
+  addToCart: (item: CartItem, quantity?: number) => void;
   removeFromCart: (productId: string) => void;
   increaseQuantity: (productId: string) => void;
   decreaseQuantity: (productId: string) => void;
@@ -57,21 +57,21 @@ export function CartProvider({ children }: { children: ReactNode }) {
     );
   }, [items, loading]);
 
-  const addToCart = (item: CartItem) => {
-    setItems((current) => {
-      const existing = current.find((x) => x.productId === item.productId);
+  const addToCart = (item: CartItem, quantity = 1) => {
+  setItems((current) => {
+    const existing = current.find((x) => x.productId === item.productId);
 
-      if (existing) {
-        return current.map((x) =>
-          x.productId === item.productId
-            ? { ...x, quantity: x.quantity + 1 }
-            : x
-        );
-      }
+    if (existing) {
+      return current.map((x) =>
+        x.productId === item.productId
+          ? { ...x, quantity: x.quantity + quantity }
+          : x
+      );
+    }
 
-      return [...current, item];
-    });
-  };
+    return [...current, { ...item, quantity }];
+  });
+};
 
   const removeFromCart = (productId: string) => {
     setItems((current) => current.filter((x) => x.productId !== productId));
