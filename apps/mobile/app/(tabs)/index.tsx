@@ -16,6 +16,17 @@ import { fetchProducts } from "../../src/lib/products";
 import type { Product } from "../../src/types/product";
 import { COLORS } from "../../src/constants/colors";
 
+const CATEGORY_META: Record<string, { icon: string }> = {
+  Sofa: { icon: "🛋️" },
+  Chair: { icon: "🪑" },
+  Lamp: { icon: "💡" },
+  Cupboard: { icon: "🗄️" },
+  Table: { icon: "🪵" },
+  Bed: { icon: "🛏️" },
+};
+
+type ProductTab = "All" | "Newest" | "Popular";
+
 export default function HomeScreen() {
   const router = useRouter();
 
@@ -25,6 +36,7 @@ export default function HomeScreen() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedTab, setSelectedTab] = useState<ProductTab>("All");
 
   const loadProducts = async () => {
     try {
@@ -54,29 +66,50 @@ export default function HomeScreen() {
       )
     );
 
-    return ["All", ...unique];
+    return unique.slice(0, 8);
   }, [products]);
 
   const filteredProducts = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
-    return products.filter((item) => {
-      const matchesCategory =
-        selectedCategory === "All" || item.category === selectedCategory;
+    let result = [...products];
 
-      const matchesSearch =
-        query.length === 0 ||
-        item.name.toLowerCase().includes(query) ||
-        item.category.toLowerCase().includes(query) ||
-        (item.description ?? "").toLowerCase().includes(query);
+    if (selectedCategory !== "All") {
+      result = result.filter((item) => item.category === selectedCategory);
+    }
 
-      return matchesCategory && matchesSearch;
-    });
-  }, [products, searchQuery, selectedCategory]);
+    if (query.length > 0) {
+      result = result.filter((item) => {
+        return (
+          item.name.toLowerCase().includes(query) ||
+          item.category.toLowerCase().includes(query) ||
+          (item.description ?? "").toLowerCase().includes(query)
+        );
+      });
+    }
+
+    if (selectedTab === "Newest") {
+      result = result.sort((a, b) => {
+        const aDate = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bDate = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return bDate - aDate;
+      });
+    }
+
+    if (selectedTab === "Popular") {
+      result = result.sort((a, b) => Number(b.price) - Number(a.price));
+    }
+
+    return result;
+  }, [products, searchQuery, selectedCategory, selectedTab]);
+
+  const featuredProduct = useMemo(() => {
+    return products.find((item) => Number(item.stock) > 0) ?? products[0] ?? null;
+  }, [products]);
 
   const renderProductCard = ({ item }: { item: Product }) => {
     const firstImage = item.product_images?.[0]?.image_url ?? null;
-    const isOutOfStock = item.stock <= 0;
+    const isOutOfStock = Number(item.stock) <= 0;
 
     return (
       <Pressable
@@ -87,48 +120,70 @@ export default function HomeScreen() {
           } as any)
         }
         style={{
-          width: "48.5%",
-          backgroundColor: COLORS.card,
+          width: "47.5%",
+          backgroundColor: COLORS.surface,
           borderRadius: 22,
           marginBottom: 16,
           overflow: "hidden",
           borderWidth: 1,
           borderColor: COLORS.border,
           shadowColor: "#000",
-          shadowOpacity: 0.05,
-          shadowRadius: 16,
-          shadowOffset: { width: 0, height: 8 },
-          elevation: 3,
+          shadowOpacity: 0.04,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 6 },
+          elevation: 2,
         }}
       >
-        {firstImage ? (
-          <Image
-            source={{ uri: firstImage }}
-            style={{
-              width: "100%",
-              height: 150,
-            }}
-            resizeMode="cover"
-          />
-        ) : (
+        <View
+          style={{
+            position: "relative",
+            backgroundColor: COLORS.accent,
+          }}
+        >
+          {firstImage ? (
+            <Image
+              source={{ uri: firstImage }}
+              style={{
+                width: "100%",
+                height: 150,
+              }}
+              resizeMode="cover"
+            />
+          ) : (
+            <View
+              style={{
+                width: "100%",
+                height: 150,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ color: COLORS.textSecondary }}>No image</Text>
+            </View>
+          )}
+
           <View
             style={{
-              width: "100%",
-              height: 150,
-              backgroundColor: COLORS.chip,
+              position: "absolute",
+              top: 10,
+              right: 10,
+              width: 30,
+              height: 30,
+              borderRadius: 999,
+              backgroundColor: "rgba(255,255,255,0.92)",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            <Text style={{ color: COLORS.textSecondary }}>No image</Text>
+            <Text style={{ fontSize: 14 }}>♡</Text>
           </View>
-        )}
+        </View>
 
         <View style={{ padding: 12 }}>
           <Text
             numberOfLines={1}
             style={{
-              fontSize: 16,
+              fontSize: 15,
               fontWeight: "700",
               color: COLORS.textPrimary,
               marginBottom: 4,
@@ -138,45 +193,23 @@ export default function HomeScreen() {
           </Text>
 
           <Text
-            numberOfLines={1}
             style={{
               fontSize: 13,
               color: COLORS.textSecondary,
               marginBottom: 8,
             }}
           >
-            {item.category}
+            ₦{Number(item.price).toLocaleString()}
           </Text>
-
-          <View
-            style={{
-              alignSelf: "flex-start",
-              backgroundColor: isOutOfStock ? "#FEE2E2" : "#E8F5E9",
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-              borderRadius: 999,
-              marginBottom: 8,
-            }}
-          >
-            <Text
-              style={{
-                color: isOutOfStock ? "#991B1B" : "#2E7D32",
-                fontSize: 11,
-                fontWeight: "700",
-              }}
-            >
-              {isOutOfStock ? "Out of Stock" : `In Stock (${item.stock})`}
-            </Text>
-          </View>
 
           <Text
             style={{
-              fontSize: 18,
+              fontSize: 12,
               fontWeight: "700",
-              color: COLORS.primaryDark,
+              color: isOutOfStock ? COLORS.danger : COLORS.success,
             }}
           >
-            ₦{Number(item.price).toLocaleString()}
+            {isOutOfStock ? "Out of Stock" : `Available (${item.stock})`}
           </Text>
         </View>
       </Pressable>
@@ -191,127 +224,302 @@ export default function HomeScreen() {
         data={loading || error || filteredProducts.length === 0 ? [] : filteredProducts}
         keyExtractor={(item) => item.id}
         numColumns={2}
-        columnWrapperStyle={{
-          justifyContent: "space-between",
-        }}
+        columnWrapperStyle={{ justifyContent: "space-between" }}
         contentContainerStyle={{
           paddingHorizontal: 16,
           paddingTop: 12,
-          paddingBottom: 30,
+          paddingBottom: 120,
         }}
+        showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <View>
             <View
               style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 18,
+                marginBottom: 16,
               }}
             >
               <Text
                 style={{
                   fontSize: 28,
                   fontWeight: "700",
-                  color: COLORS.primaryDark,
+                  color: COLORS.textPrimary,
+                  marginBottom: 4,
                 }}
               >
                 Furniture Store
               </Text>
 
-              <Pressable
-                onPress={() => router.push("/cart" as any)}
+              <Text
                 style={{
-                  backgroundColor: COLORS.primaryDark,
-                  paddingHorizontal: 18,
-                  paddingVertical: 11,
-                  borderRadius: 16,
+                  fontSize: 13,
+                  color: COLORS.textSecondary,
                 }}
               >
-                <Text
-                  style={{
-                    color: COLORS.white,
-                    fontWeight: "600",
-                    fontSize: 15,
-                  }}
-                >
-                  Cart
-                </Text>
-              </Pressable>
+                Find the best furniture for your home
+              </Text>
             </View>
 
-            <Pressable
-              onPress={() => router.push("/orders" as any)}
+            <View
               style={{
-                alignSelf: "flex-start",
-                marginBottom: 14,
-                backgroundColor: COLORS.primary,
-                borderRadius: 14,
-                paddingHorizontal: 16,
-                paddingVertical: 10,
+                flexDirection: "row",
+                marginBottom: 18,
+                gap: 10,
               }}
             >
-              <Text style={{ color: COLORS.white, fontWeight: "600" }}>
-                View Order History
-              </Text>
-            </Pressable>
+              <View
+                style={{
+                  flex: 1,
+                  height: 52,
+                  backgroundColor: COLORS.surface,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  paddingHorizontal: 14,
+                }}
+              >
+                <Text style={{ fontSize: 18, marginRight: 8 }}>⌕</Text>
+                <TextInput
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Search Furniture"
+                  placeholderTextColor={COLORS.textSecondary}
+                  style={{
+                    flex: 1,
+                    fontSize: 15,
+                    color: COLORS.textPrimary,
+                  }}
+                />
+              </View>
+
+              <Pressable
+                onPress={() => {
+                  setSearchQuery("");
+                  setSelectedCategory("All");
+                  setSelectedTab("All");
+                }}
+                style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: 14,
+                  backgroundColor: COLORS.primaryDark,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ color: COLORS.white, fontSize: 18 }}>✕</Text>
+              </Pressable>
+            </View>
 
             <View
               style={{
                 backgroundColor: COLORS.surface,
-                borderRadius: 18,
+                borderRadius: 22,
+                padding: 16,
+                marginBottom: 18,
                 borderWidth: 1,
                 borderColor: COLORS.border,
-                paddingHorizontal: 16,
-                paddingVertical: 2,
-                marginBottom: 16,
+                flexDirection: "row",
+                alignItems: "center",
+                overflow: "hidden",
               }}
             >
-              <TextInput
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search products..."
-                placeholderTextColor={COLORS.textSecondary}
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text
+                  style={{
+                    fontSize: 24,
+                    fontWeight: "700",
+                    color: COLORS.textPrimary,
+                    marginBottom: 6,
+                  }}
+                >
+                  New Collection
+                </Text>
+
+                <Text
+                  style={{
+                    fontSize: 13,
+                    lineHeight: 20,
+                    color: COLORS.textSecondary,
+                    marginBottom: 12,
+                  }}
+                >
+                  Discover beautifully crafted furniture for your home.
+                </Text>
+
+                <Pressable
+                  onPress={() => {
+                    if (featuredProduct) {
+                      router.push({
+                        pathname: "/product/[id]",
+                        params: { id: featuredProduct.id },
+                      } as any);
+                    }
+                  }}
+                  style={{
+                    alignSelf: "flex-start",
+                    backgroundColor: COLORS.primaryDark,
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                    borderRadius: 12,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: COLORS.white,
+                      fontWeight: "700",
+                      fontSize: 13,
+                    }}
+                  >
+                    Shop Now
+                  </Text>
+                </Pressable>
+              </View>
+
+              <View
                 style={{
-                  height: 52,
-                  fontSize: 15,
+                  width: 120,
+                  height: 100,
+                  borderRadius: 18,
+                  overflow: "hidden",
+                  backgroundColor: COLORS.accent,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {featuredProduct?.product_images?.[0]?.image_url ? (
+                  <Image
+                    source={{ uri: featuredProduct.product_images[0].image_url }}
+                    style={{ width: "100%", height: "100%" }}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Text style={{ fontSize: 38 }}>🪑</Text>
+                )}
+              </View>
+            </View>
+
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 14,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 22,
+                  fontWeight: "700",
                   color: COLORS.textPrimary,
                 }}
-              />
+              >
+                Category
+              </Text>
+
+              <Pressable onPress={() => setSelectedCategory("All")}>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "600",
+                    color: COLORS.textSecondary,
+                  }}
+                >
+                  See All
+                </Text>
+              </Pressable>
             </View>
 
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 16 }}
+              contentContainerStyle={{ paddingBottom: 18 }}
             >
+              <Pressable
+                onPress={() => setSelectedCategory("All")}
+                style={{
+                  alignItems: "center",
+                  marginRight: 18,
+                  width: 74,
+                }}
+              >
+                <View
+                  style={{
+                    width: 58,
+                    height: 58,
+                    borderRadius: 29,
+                    backgroundColor:
+                      selectedCategory === "All" ? COLORS.primary : COLORS.chip,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginBottom: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 22,
+                      color:
+                        selectedCategory === "All"
+                          ? COLORS.white
+                          : COLORS.primaryDark,
+                    }}
+                  >
+                    🏠
+                  </Text>
+                </View>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "600",
+                    color: COLORS.textPrimary,
+                  }}
+                >
+                  All
+                </Text>
+              </Pressable>
+
               {categories.map((category) => {
-                const isActive = selectedCategory === category;
+                const active = selectedCategory === category;
+                const icon = CATEGORY_META[category]?.icon ?? "🪑";
 
                 return (
                   <Pressable
                     key={category}
                     onPress={() => setSelectedCategory(category)}
                     style={{
-                      backgroundColor: isActive
-                        ? COLORS.primaryDark
-                        : COLORS.chip,
-                      paddingHorizontal: 18,
-                      paddingVertical: 10,
-                      borderRadius: 999,
-                      marginRight: 10,
-                      borderWidth: 1,
-                      borderColor: isActive
-                        ? COLORS.primaryDark
-                        : COLORS.border,
+                      alignItems: "center",
+                      marginRight: 18,
+                      width: 74,
                     }}
                   >
-                    <Text
+                    <View
                       style={{
-                        color: isActive
-                          ? COLORS.white
-                          : COLORS.primaryDark,
+                        width: 58,
+                        height: 58,
+                        borderRadius: 29,
+                        backgroundColor: active ? COLORS.primary : COLORS.chip,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginBottom: 8,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 22,
+                          color: active ? COLORS.white : COLORS.primaryDark,
+                        }}
+                      >
+                        {icon}
+                      </Text>
+                    </View>
+
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        fontSize: 13,
                         fontWeight: "600",
+                        color: COLORS.textPrimary,
                       }}
                     >
                       {category}
@@ -321,12 +529,48 @@ export default function HomeScreen() {
               })}
             </ScrollView>
 
+            <View
+              style={{
+                flexDirection: "row",
+                marginBottom: 16,
+              }}
+            >
+              {(["All", "Newest", "Popular"] as ProductTab[]).map((tab) => {
+                const active = selectedTab === tab;
+
+                return (
+                  <Pressable
+                    key={tab}
+                    onPress={() => setSelectedTab(tab)}
+                    style={{
+                      backgroundColor: active ? COLORS.primary : COLORS.surface,
+                      paddingHorizontal: 16,
+                      paddingVertical: 10,
+                      borderRadius: 999,
+                      marginRight: 10,
+                      borderWidth: 1,
+                      borderColor: active ? COLORS.primary : COLORS.border,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: active ? COLORS.white : COLORS.textPrimary,
+                        fontWeight: "700",
+                        fontSize: 13,
+                      }}
+                    >
+                      {tab}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
             {loading ? (
               <View
                 style={{
                   paddingVertical: 40,
                   alignItems: "center",
-                  justifyContent: "center",
                 }}
               >
                 <ActivityIndicator size="large" color={COLORS.primaryDark} />
@@ -336,7 +580,7 @@ export default function HomeScreen() {
                     color: COLORS.textSecondary,
                   }}
                 >
-                  Loading products...
+                  Loading furniture...
                 </Text>
               </View>
             ) : error ? (
@@ -345,7 +589,7 @@ export default function HomeScreen() {
                   backgroundColor: "#FEF2F2",
                   borderWidth: 1,
                   borderColor: "#FECACA",
-                  borderRadius: 16,
+                  borderRadius: 18,
                   padding: 16,
                   marginBottom: 16,
                 }}
@@ -353,7 +597,7 @@ export default function HomeScreen() {
                 <Text
                   style={{
                     color: COLORS.danger,
-                    fontWeight: "600",
+                    fontWeight: "700",
                   }}
                 >
                   Error: {error}
@@ -368,7 +612,7 @@ export default function HomeScreen() {
                   borderColor: COLORS.border,
                   padding: 24,
                   alignItems: "center",
-                  marginBottom: 12,
+                  marginBottom: 16,
                 }}
               >
                 <View
@@ -382,14 +626,16 @@ export default function HomeScreen() {
                     marginBottom: 16,
                   }}
                 >
-                  <Text style={{ color: COLORS.white, fontSize: 28 }}>⌕</Text>
+                  <Text style={{ color: COLORS.primaryDark, fontSize: 28 }}>
+                    ⌕
+                  </Text>
                 </View>
 
                 <Text
                   style={{
-                    fontSize: 28,
+                    fontSize: 26,
                     fontWeight: "700",
-                    color: COLORS.primaryDark,
+                    color: COLORS.textPrimary,
                     marginBottom: 8,
                     textAlign: "center",
                   }}
@@ -413,6 +659,7 @@ export default function HomeScreen() {
                   onPress={() => {
                     setSearchQuery("");
                     setSelectedCategory("All");
+                    setSelectedTab("All");
                   }}
                   style={{
                     backgroundColor: COLORS.primary,
@@ -436,7 +683,6 @@ export default function HomeScreen() {
           </View>
         }
         renderItem={renderProductCard}
-        showsVerticalScrollIndicator={false}
       />
     </SafeAreaView>
   );

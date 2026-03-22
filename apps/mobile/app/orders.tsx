@@ -9,22 +9,35 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { fetchOrders, type OrderHistoryItem } from "../src/lib/products";
+import { COLORS } from "../src/constants/colors";
 
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleString();
 }
 
-function getStatusColors(status: string) {
+function getStatusStyles(status: string) {
   switch (status.toLowerCase()) {
     case "completed":
-      return { bg: "#dcfce7", text: "#15803d" };
+      return {
+        bg: "#DCFCE7",
+        text: "#166534",
+      };
     case "processing":
-      return { bg: "#dbeafe", text: "#1d4ed8" };
+      return {
+        bg: "#DBEAFE",
+        text: "#1D4ED8",
+      };
     case "cancelled":
-      return { bg: "#fee2e2", text: "#b91c1c" };
+      return {
+        bg: "#FEE2E2",
+        text: "#991B1B",
+      };
     case "pending":
     default:
-      return { bg: "#fef3c7", text: "#b45309" };
+      return {
+        bg: "#FEF3C7",
+        text: "#B45309",
+      };
   }
 }
 
@@ -54,117 +67,190 @@ export default function OrdersScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#fafaf9" }}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
-        <Pressable
-          onPress={() => router.back()}
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+      >
+        <View
           style={{
-            marginBottom: 16,
-            alignSelf: "flex-start",
-            paddingHorizontal: 14,
-            paddingVertical: 10,
-            borderRadius: 12,
-            backgroundColor: "#ffffff",
-            borderWidth: 1,
-            borderColor: "#e7e5e4",
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 18,
           }}
         >
-          <Text style={{ color: "#1c1917", fontWeight: "600" }}>Back</Text>
-        </Pressable>
+          <Pressable
+            onPress={() => router.back()}
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 14,
+              backgroundColor: COLORS.surface,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ fontSize: 20, color: COLORS.textPrimary }}>‹</Text>
+          </Pressable>
+
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: "700",
+              color: COLORS.textPrimary,
+            }}
+          >
+            Order History
+          </Text>
+
+          <View style={{ width: 42 }} />
+        </View>
 
         <Text
           style={{
-            fontSize: 28,
+            fontSize: 30,
             fontWeight: "700",
-            color: "#1c1917",
+            color: COLORS.textPrimary,
             marginBottom: 6,
           }}
         >
-          Order History
+          My Orders
         </Text>
 
         <Text
           style={{
             fontSize: 14,
-            color: "#78716c",
+            color: COLORS.textSecondary,
             marginBottom: 20,
           }}
         >
-          View your recent orders
+          Track your recent furniture orders
         </Text>
 
         {loading ? (
           <View
             style={{
+              paddingVertical: 40,
               alignItems: "center",
               justifyContent: "center",
-              paddingVertical: 40,
             }}
           >
-            <ActivityIndicator size="large" color="#292524" />
-            <Text style={{ marginTop: 12, color: "#57534e" }}>
+            <ActivityIndicator size="large" color={COLORS.primaryDark} />
+            <Text style={{ marginTop: 12, color: COLORS.textSecondary }}>
               Loading orders...
             </Text>
           </View>
         ) : error ? (
           <View
             style={{
-              backgroundColor: "#fef2f2",
-              borderColor: "#fecaca",
+              backgroundColor: "#FEF2F2",
               borderWidth: 1,
-              borderRadius: 12,
+              borderColor: "#FECACA",
+              borderRadius: 20,
               padding: 16,
             }}
           >
             <Text
               style={{
-                color: "#b91c1c",
-                fontWeight: "600",
-                marginBottom: 4,
+                color: COLORS.danger,
+                fontWeight: "700",
               }}
             >
-              Something went wrong
+              Error: {error}
             </Text>
-            <Text style={{ color: "#991b1b" }}>{error}</Text>
           </View>
         ) : orders.length === 0 ? (
           <View
             style={{
-              backgroundColor: "#ffffff",
-              borderRadius: 16,
-              padding: 20,
+              backgroundColor: COLORS.surface,
+              borderRadius: 24,
               borderWidth: 1,
-              borderColor: "#e7e5e4",
+              borderColor: COLORS.border,
+              padding: 28,
+              alignItems: "center",
             }}
           >
+            <View
+              style={{
+                width: 84,
+                height: 84,
+                borderRadius: 24,
+                backgroundColor: COLORS.secondary,
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 18,
+              }}
+            >
+              <Text style={{ fontSize: 34 }}>📦</Text>
+            </View>
+
             <Text
               style={{
-                fontSize: 18,
-                fontWeight: "600",
-                color: "#1c1917",
-                marginBottom: 6,
+                fontSize: 24,
+                fontWeight: "700",
+                color: COLORS.textPrimary,
+                marginBottom: 8,
+                textAlign: "center",
               }}
             >
               No orders yet
             </Text>
-            <Text style={{ color: "#78716c" }}>
+
+            <Text
+              style={{
+                fontSize: 15,
+                color: COLORS.textSecondary,
+                textAlign: "center",
+                lineHeight: 22,
+                marginBottom: 18,
+              }}
+            >
               Orders placed from checkout will appear here.
             </Text>
+
+            <Pressable
+              onPress={() => router.replace("/" as any)}
+              style={{
+                backgroundColor: COLORS.primary,
+                paddingHorizontal: 22,
+                paddingVertical: 13,
+                borderRadius: 999,
+              }}
+            >
+              <Text
+                style={{
+                  color: COLORS.white,
+                  fontWeight: "700",
+                  fontSize: 15,
+                }}
+              >
+                Start Shopping
+              </Text>
+            </Pressable>
           </View>
         ) : (
-          <View style={{ gap: 12 }}>
+          <View>
             {orders.map((order) => {
-              const colors = getStatusColors(order.status);
+              const statusStyles = getStatusStyles(order.status);
 
               return (
                 <View
                   key={order.id}
                   style={{
-                    backgroundColor: "#ffffff",
-                    borderRadius: 16,
-                    padding: 16,
+                    backgroundColor: COLORS.surface,
+                    borderRadius: 22,
                     borderWidth: 1,
-                    borderColor: "#e7e5e4",
+                    borderColor: COLORS.border,
+                    padding: 16,
+                    marginBottom: 14,
+                    shadowColor: "#000",
+                    shadowOpacity: 0.04,
+                    shadowRadius: 10,
+                    shadowOffset: { width: 0, height: 6 },
+                    elevation: 2,
                   }}
                 >
                   <View
@@ -172,15 +258,15 @@ export default function OrdersScreen() {
                       flexDirection: "row",
                       justifyContent: "space-between",
                       alignItems: "flex-start",
-                      marginBottom: 12,
+                      marginBottom: 14,
                     }}
                   >
                     <View style={{ flex: 1, paddingRight: 10 }}>
                       <Text
                         style={{
-                          fontSize: 16,
+                          fontSize: 17,
                           fontWeight: "700",
-                          color: "#1c1917",
+                          color: COLORS.textPrimary,
                           marginBottom: 4,
                         }}
                       >
@@ -190,7 +276,7 @@ export default function OrdersScreen() {
                       <Text
                         style={{
                           fontSize: 13,
-                          color: "#78716c",
+                          color: COLORS.textSecondary,
                         }}
                       >
                         {formatDate(order.created_at)}
@@ -199,7 +285,7 @@ export default function OrdersScreen() {
 
                     <View
                       style={{
-                        backgroundColor: colors.bg,
+                        backgroundColor: statusStyles.bg,
                         paddingHorizontal: 12,
                         paddingVertical: 6,
                         borderRadius: 999,
@@ -207,7 +293,7 @@ export default function OrdersScreen() {
                     >
                       <Text
                         style={{
-                          color: colors.text,
+                          color: statusStyles.text,
                           fontSize: 12,
                           fontWeight: "700",
                           textTransform: "capitalize",
@@ -218,46 +304,88 @@ export default function OrdersScreen() {
                     </View>
                   </View>
 
-                  <Text style={{ color: "#57534e", marginBottom: 4 }}>
-                    Delivery Method:{" "}
-                    <Text style={{ color: "#1c1917", fontWeight: "600" }}>
-                      {order.delivery_method}
-                    </Text>
-                  </Text>
-
-                  <Text style={{ color: "#57534e", marginBottom: 4 }}>
-                    Phone:{" "}
-                    <Text style={{ color: "#1c1917", fontWeight: "600" }}>
-                      {order.phone ?? "N/A"}
-                    </Text>
-                  </Text>
-
-                  {order.delivery_method === "delivery" ? (
-                    <Text style={{ color: "#57534e", marginBottom: 4 }}>
-                      Address:{" "}
-                      <Text style={{ color: "#1c1917", fontWeight: "600" }}>
-                        {order.address ?? "N/A"}
-                      </Text>
-                    </Text>
-                  ) : null}
-
                   <View
                     style={{
-                      height: 1,
-                      backgroundColor: "#e7e5e4",
-                      marginVertical: 12,
+                      backgroundColor: COLORS.accent,
+                      borderRadius: 16,
+                      padding: 12,
+                      marginBottom: 14,
                     }}
-                  />
+                  >
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: COLORS.textSecondary,
+                        marginBottom: 6,
+                      }}
+                    >
+                      Delivery Method:{" "}
+                      <Text
+                        style={{
+                          color: COLORS.textPrimary,
+                          fontWeight: "700",
+                          textTransform: "capitalize",
+                        }}
+                      >
+                        {order.delivery_method}
+                      </Text>
+                    </Text>
+
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: COLORS.textSecondary,
+                        marginBottom: 6,
+                      }}
+                    >
+                      Phone:{" "}
+                      <Text
+                        style={{
+                          color: COLORS.textPrimary,
+                          fontWeight: "700",
+                        }}
+                      >
+                        {order.phone ?? "N/A"}
+                      </Text>
+                    </Text>
+
+                    {order.delivery_method === "delivery" ? (
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          color: COLORS.textSecondary,
+                        }}
+                      >
+                        Address:{" "}
+                        <Text
+                          style={{
+                            color: COLORS.textPrimary,
+                            fontWeight: "700",
+                          }}
+                        >
+                          {order.address ?? "N/A"}
+                        </Text>
+                      </Text>
+                    ) : null}
+                  </View>
 
                   <View
                     style={{
                       flexDirection: "row",
                       justifyContent: "space-between",
-                      marginBottom: 6,
+                      marginBottom: 8,
                     }}
                   >
-                    <Text style={{ color: "#57534e" }}>Subtotal</Text>
-                    <Text style={{ color: "#1c1917", fontWeight: "600" }}>
+                    <Text style={{ color: COLORS.textSecondary, fontSize: 14 }}>
+                      Subtotal
+                    </Text>
+                    <Text
+                      style={{
+                        color: COLORS.textPrimary,
+                        fontWeight: "700",
+                        fontSize: 14,
+                      }}
+                    >
                       ₦{Number(order.subtotal).toLocaleString()}
                     </Text>
                   </View>
@@ -266,36 +394,53 @@ export default function OrdersScreen() {
                     style={{
                       flexDirection: "row",
                       justifyContent: "space-between",
-                      marginBottom: 6,
+                      marginBottom: 12,
                     }}
                   >
-                    <Text style={{ color: "#57534e" }}>Delivery Fee</Text>
-                    <Text style={{ color: "#1c1917", fontWeight: "600" }}>
+                    <Text style={{ color: COLORS.textSecondary, fontSize: 14 }}>
+                      Delivery Fee
+                    </Text>
+                    <Text
+                      style={{
+                        color: COLORS.textPrimary,
+                        fontWeight: "700",
+                        fontSize: 14,
+                      }}
+                    >
                       ₦{Number(order.delivery_fee).toLocaleString()}
                     </Text>
                   </View>
 
                   <View
                     style={{
+                      height: 1,
+                      backgroundColor: COLORS.border,
+                      marginBottom: 12,
+                    }}
+                  />
+
+                  <View
+                    style={{
                       flexDirection: "row",
                       justifyContent: "space-between",
-                      marginTop: 6,
+                      alignItems: "center",
                     }}
                   >
                     <Text
                       style={{
-                        color: "#1c1917",
-                        fontWeight: "700",
                         fontSize: 16,
+                        fontWeight: "700",
+                        color: COLORS.textPrimary,
                       }}
                     >
                       Total
                     </Text>
+
                     <Text
                       style={{
-                        color: "#0f172a",
-                        fontWeight: "700",
-                        fontSize: 18,
+                        fontSize: 20,
+                        fontWeight: "800",
+                        color: COLORS.primaryDark,
                       }}
                     >
                       ₦{Number(order.total).toLocaleString()}

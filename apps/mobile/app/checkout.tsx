@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import { useCart } from "../src/context/CartContext";
 import { fetchAppSettings } from "../src/lib/products";
 import { supabase } from "../src/lib/supabase";
+import { COLORS } from "../src/constants/colors";
 
 type DeliveryMethod = "delivery" | "pickup";
 
@@ -29,7 +30,6 @@ export default function CheckoutScreen() {
     useState<DeliveryMethod>("delivery");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
@@ -67,7 +67,6 @@ export default function CheckoutScreen() {
   const placeOrder = async () => {
     try {
       setErrorMessage("");
-      setSuccessMessage("");
 
       if (items.length === 0) {
         setErrorMessage("Your cart is empty. Add products before checkout.");
@@ -153,7 +152,7 @@ export default function CheckoutScreen() {
       }
 
       // 4. Reduce stock only
-      // IMPORTANT: product remains visible even if stock becomes 0
+      // Product remains visible even if stock becomes 0
       for (const item of items) {
         const { data: product, error: productError } = await supabase
           .from("products")
@@ -186,15 +185,15 @@ export default function CheckoutScreen() {
         }
       }
 
-      // 5. Clear cart and show success
+      // 5. Clear cart and go to success screen
       clearCart();
-      setSuccessMessage("Order successfully placed.");
       setPhone("");
       setAddress("");
 
-      setTimeout(() => {
-        router.replace("/" as any);
-      }, 1200);
+      router.replace({
+        pathname: "/checkout-success",
+        params: { orderId: insertedOrder.id },
+      } as any);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to place order.";
@@ -206,7 +205,7 @@ export default function CheckoutScreen() {
 
   if (loadingSettings) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#fafaf9" }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
         <View
           style={{
             flex: 1,
@@ -214,8 +213,8 @@ export default function CheckoutScreen() {
             justifyContent: "center",
           }}
         >
-          <ActivityIndicator size="large" color="#292524" />
-          <Text style={{ marginTop: 12, color: "#57534e" }}>
+          <ActivityIndicator size="large" color={COLORS.primaryDark} />
+          <Text style={{ marginTop: 12, color: COLORS.textSecondary }}>
             Loading checkout...
           </Text>
         </View>
@@ -224,52 +223,68 @@ export default function CheckoutScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#fafaf9" }}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+      >
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 18,
+          }}
+        >
+          <Pressable
+            onPress={() => router.back()}
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 14,
+              backgroundColor: COLORS.surface,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ fontSize: 20, color: COLORS.textPrimary }}>‹</Text>
+          </Pressable>
+
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: "700",
+              color: COLORS.textPrimary,
+            }}
+          >
+            Checkout
+          </Text>
+
+          <View style={{ width: 42 }} />
+        </View>
+
         <Text
           style={{
             fontSize: 28,
             fontWeight: "700",
-            color: "#1c1917",
+            color: COLORS.textPrimary,
             marginBottom: 6,
           }}
         >
-          Checkout
+          Complete Your Order
         </Text>
 
         <Text
           style={{
             fontSize: 14,
-            color: "#78716c",
+            color: COLORS.textSecondary,
             marginBottom: 20,
           }}
         >
-          Complete your order details
+          Enter your details to place your order
         </Text>
-
-        {!!successMessage && (
-          <View
-            style={{
-              backgroundColor: "#DCFCE7",
-              borderWidth: 1,
-              borderColor: "#86EFAC",
-              borderRadius: 16,
-              padding: 14,
-              marginBottom: 16,
-            }}
-          >
-            <Text
-              style={{
-                color: "#166534",
-                fontSize: 15,
-                fontWeight: "800",
-                textAlign: "center",
-              }}
-            >
-              {successMessage}
-            </Text>
-          </View>
-        )}
 
         {!!errorMessage && (
           <View
@@ -297,19 +312,19 @@ export default function CheckoutScreen() {
 
         <View
           style={{
-            backgroundColor: "#ffffff",
-            borderRadius: 16,
+            backgroundColor: COLORS.surface,
+            borderRadius: 20,
             padding: 16,
             borderWidth: 1,
-            borderColor: "#e7e5e4",
+            borderColor: COLORS.border,
             marginBottom: 16,
           }}
         >
           <Text
             style={{
               fontSize: 16,
-              fontWeight: "600",
-              color: "#1c1917",
+              fontWeight: "700",
+              color: COLORS.textPrimary,
               marginBottom: 12,
             }}
           >
@@ -322,17 +337,26 @@ export default function CheckoutScreen() {
               style={{
                 flex: 1,
                 paddingVertical: 14,
-                borderRadius: 12,
+                borderRadius: 14,
                 backgroundColor:
-                  deliveryMethod === "delivery" ? "#1c1917" : "#f5f5f4",
+                  deliveryMethod === "delivery"
+                    ? COLORS.primary
+                    : COLORS.accent,
                 alignItems: "center",
+                borderWidth: 1,
+                borderColor:
+                  deliveryMethod === "delivery"
+                    ? COLORS.primary
+                    : COLORS.border,
               }}
             >
               <Text
                 style={{
                   color:
-                    deliveryMethod === "delivery" ? "#ffffff" : "#1c1917",
-                  fontWeight: "600",
+                    deliveryMethod === "delivery"
+                      ? COLORS.white
+                      : COLORS.textPrimary,
+                  fontWeight: "700",
                 }}
               >
                 Delivery
@@ -345,16 +369,26 @@ export default function CheckoutScreen() {
                 style={{
                   flex: 1,
                   paddingVertical: 14,
-                  borderRadius: 12,
+                  borderRadius: 14,
                   backgroundColor:
-                    deliveryMethod === "pickup" ? "#1c1917" : "#f5f5f4",
+                    deliveryMethod === "pickup"
+                      ? COLORS.primary
+                      : COLORS.accent,
                   alignItems: "center",
+                  borderWidth: 1,
+                  borderColor:
+                    deliveryMethod === "pickup"
+                      ? COLORS.primary
+                      : COLORS.border,
                 }}
               >
                 <Text
                   style={{
-                    color: deliveryMethod === "pickup" ? "#ffffff" : "#1c1917",
-                    fontWeight: "600",
+                    color:
+                      deliveryMethod === "pickup"
+                        ? COLORS.white
+                        : COLORS.textPrimary,
+                    fontWeight: "700",
                   }}
                 >
                   Pickup
@@ -366,19 +400,19 @@ export default function CheckoutScreen() {
 
         <View
           style={{
-            backgroundColor: "#ffffff",
-            borderRadius: 16,
+            backgroundColor: COLORS.surface,
+            borderRadius: 20,
             padding: 16,
             borderWidth: 1,
-            borderColor: "#e7e5e4",
+            borderColor: COLORS.border,
             marginBottom: 16,
           }}
         >
           <Text
             style={{
               fontSize: 16,
-              fontWeight: "600",
-              color: "#1c1917",
+              fontWeight: "700",
+              color: COLORS.textPrimary,
               marginBottom: 12,
             }}
           >
@@ -389,15 +423,17 @@ export default function CheckoutScreen() {
             value={phone}
             onChangeText={setPhone}
             placeholder="Phone number"
+            placeholderTextColor={COLORS.textSecondary}
             keyboardType="phone-pad"
             style={{
               borderWidth: 1,
-              borderColor: "#d6d3d1",
-              borderRadius: 12,
+              borderColor: COLORS.border,
+              borderRadius: 14,
               paddingHorizontal: 14,
               paddingVertical: 14,
               marginBottom: deliveryMethod === "delivery" ? 12 : 0,
-              backgroundColor: "#ffffff",
+              backgroundColor: COLORS.background,
+              color: COLORS.textPrimary,
             }}
           />
 
@@ -406,15 +442,17 @@ export default function CheckoutScreen() {
               value={address}
               onChangeText={setAddress}
               placeholder="Delivery address"
+              placeholderTextColor={COLORS.textSecondary}
               multiline
               style={{
                 borderWidth: 1,
-                borderColor: "#d6d3d1",
-                borderRadius: 12,
+                borderColor: COLORS.border,
+                borderRadius: 14,
                 paddingHorizontal: 14,
                 paddingVertical: 14,
                 minHeight: 100,
-                backgroundColor: "#ffffff",
+                backgroundColor: COLORS.background,
+                color: COLORS.textPrimary,
                 textAlignVertical: "top",
               }}
             />
@@ -423,19 +461,19 @@ export default function CheckoutScreen() {
 
         <View
           style={{
-            backgroundColor: "#ffffff",
-            borderRadius: 16,
+            backgroundColor: COLORS.surface,
+            borderRadius: 20,
             padding: 16,
             borderWidth: 1,
-            borderColor: "#e7e5e4",
-            marginBottom: 16,
+            borderColor: COLORS.border,
+            marginBottom: 18,
           }}
         >
           <Text
             style={{
               fontSize: 16,
-              fontWeight: "600",
-              color: "#1c1917",
+              fontWeight: "700",
+              color: COLORS.textPrimary,
               marginBottom: 14,
             }}
           >
@@ -449,8 +487,13 @@ export default function CheckoutScreen() {
               marginBottom: 10,
             }}
           >
-            <Text style={{ color: "#57534e" }}>Subtotal</Text>
-            <Text style={{ color: "#1c1917", fontWeight: "600" }}>
+            <Text style={{ color: COLORS.textSecondary }}>Subtotal</Text>
+            <Text
+              style={{
+                color: COLORS.textPrimary,
+                fontWeight: "700",
+              }}
+            >
               ₦{subtotal.toLocaleString()}
             </Text>
           </View>
@@ -462,8 +505,13 @@ export default function CheckoutScreen() {
               marginBottom: 10,
             }}
           >
-            <Text style={{ color: "#57534e" }}>Delivery Fee</Text>
-            <Text style={{ color: "#1c1917", fontWeight: "600" }}>
+            <Text style={{ color: COLORS.textSecondary }}>Delivery Fee</Text>
+            <Text
+              style={{
+                color: COLORS.textPrimary,
+                fontWeight: "700",
+              }}
+            >
               ₦{finalDeliveryFee.toLocaleString()}
             </Text>
           </View>
@@ -471,7 +519,7 @@ export default function CheckoutScreen() {
           <View
             style={{
               height: 1,
-              backgroundColor: "#e7e5e4",
+              backgroundColor: COLORS.border,
               marginVertical: 10,
             }}
           />
@@ -484,7 +532,7 @@ export default function CheckoutScreen() {
           >
             <Text
               style={{
-                color: "#1c1917",
+                color: COLORS.textPrimary,
                 fontWeight: "700",
                 fontSize: 16,
               }}
@@ -493,9 +541,9 @@ export default function CheckoutScreen() {
             </Text>
             <Text
               style={{
-                color: "#0f172a",
-                fontWeight: "700",
-                fontSize: 18,
+                color: COLORS.primaryDark,
+                fontWeight: "800",
+                fontSize: 20,
               }}
             >
               ₦{total.toLocaleString()}
@@ -507,17 +555,22 @@ export default function CheckoutScreen() {
           onPress={placeOrder}
           disabled={placingOrder || items.length === 0}
           style={{
-            backgroundColor: "#1c1917",
-            borderRadius: 14,
-            paddingVertical: 16,
+            backgroundColor:
+              placingOrder || items.length === 0
+                ? COLORS.border
+                : COLORS.primary,
+            borderRadius: 16,
+            paddingVertical: 17,
             alignItems: "center",
-            opacity: placingOrder || items.length === 0 ? 0.6 : 1,
           }}
         >
           <Text
             style={{
-              color: "#ffffff",
-              fontSize: 15,
+              color:
+                placingOrder || items.length === 0
+                  ? COLORS.textSecondary
+                  : COLORS.white,
+              fontSize: 16,
               fontWeight: "700",
             }}
           >
