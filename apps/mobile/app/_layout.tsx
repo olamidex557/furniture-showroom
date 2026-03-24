@@ -12,10 +12,13 @@ export default function RootLayout() {
           <Stack.Screen name="cart" options={{ headerShown: false }} />
           <Stack.Screen name="checkout" options={{ headerShown: false }} />
           <Stack.Screen name="orders" options={{ headerShown: false }} />
+          <Stack.Screen name="order/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="settings" options={{ headerShown: false }} />
           <Stack.Screen
             name="checkout-success"
             options={{ headerShown: false }}
           />
+          <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack>
       </CartProvider>
     </AppClerkProvider>

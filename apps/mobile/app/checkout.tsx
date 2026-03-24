@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useUser } from "@clerk/clerk-expo";
 import { useCart } from "../src/context/CartContext";
 import { fetchAppSettings } from "../src/lib/products";
 import { supabase } from "../src/lib/supabase";
@@ -18,6 +19,7 @@ type DeliveryMethod = "delivery" | "pickup";
 
 export default function CheckoutScreen() {
   const router = useRouter();
+  const { user, isSignedIn, isLoaded } = useUser();
   const { items, subtotal, clearCart } = useCart();
 
   const [loadingSettings, setLoadingSettings] = useState(true);
@@ -68,6 +70,16 @@ export default function CheckoutScreen() {
     try {
       setErrorMessage("");
 
+      if (!isLoaded) {
+        setErrorMessage("Please wait while your account loads.");
+        return;
+      }
+
+      if (!isSignedIn || !user) {
+        setErrorMessage("Please sign in before placing an order.");
+        return;
+      }
+
       if (items.length === 0) {
         setErrorMessage("Your cart is empty. Add products before checkout.");
         return;
@@ -114,11 +126,12 @@ export default function CheckoutScreen() {
         }
       }
 
-      // 2. Create order
+      // 2. Create order with clerk_user_id
       const { data: insertedOrder, error: orderError } = await supabase
         .from("orders")
         .insert({
           customer_id: null,
+          clerk_user_id: user.id,
           subtotal,
           delivery_method: deliveryMethod,
           delivery_fee: finalDeliveryFee,
@@ -152,7 +165,6 @@ export default function CheckoutScreen() {
       }
 
       // 4. Reduce stock only
-      // Product remains visible even if stock becomes 0
       for (const item of items) {
         const { data: product, error: productError } = await supabase
           .from("products")
@@ -203,7 +215,7 @@ export default function CheckoutScreen() {
     }
   };
 
-  if (loadingSettings) {
+  if (loadingSettings || !isLoaded) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
         <View
@@ -286,6 +298,61 @@ export default function CheckoutScreen() {
           Enter your details to place your order
         </Text>
 
+        {!isSignedIn ? (
+          <View
+            style={{
+              backgroundColor: COLORS.surface,
+              borderRadius: 20,
+              padding: 20,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              marginBottom: 18,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: "700",
+                color: COLORS.textPrimary,
+                marginBottom: 8,
+              }}
+            >
+              Sign in required
+            </Text>
+
+            <Text
+              style={{
+                fontSize: 14,
+                color: COLORS.textSecondary,
+                lineHeight: 22,
+                marginBottom: 16,
+              }}
+            >
+              You need to sign in before placing an order.
+            </Text>
+
+            <Pressable
+              onPress={() => router.push("/sign-in" as any)}
+              style={{
+                backgroundColor: COLORS.primary,
+                paddingVertical: 14,
+                borderRadius: 14,
+                alignItems: "center",
+              }}
+            >
+              <Text
+                style={{
+                  color: COLORS.white,
+                  fontWeight: "700",
+                  fontSize: 15,
+                }}
+              >
+                Sign In
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {!!errorMessage && (
           <View
             style={{
@@ -318,6 +385,7 @@ export default function CheckoutScreen() {
             borderWidth: 1,
             borderColor: COLORS.border,
             marginBottom: 16,
+            opacity: isSignedIn ? 1 : 0.6,
           }}
         >
           <Text
@@ -334,6 +402,7 @@ export default function CheckoutScreen() {
           <View style={{ flexDirection: "row", gap: 10 }}>
             <Pressable
               onPress={() => setDeliveryMethod("delivery")}
+              disabled={!isSignedIn}
               style={{
                 flex: 1,
                 paddingVertical: 14,
@@ -366,6 +435,7 @@ export default function CheckoutScreen() {
             {pickupEnabled ? (
               <Pressable
                 onPress={() => setDeliveryMethod("pickup")}
+                disabled={!isSignedIn}
                 style={{
                   flex: 1,
                   paddingVertical: 14,
@@ -406,6 +476,7 @@ export default function CheckoutScreen() {
             borderWidth: 1,
             borderColor: COLORS.border,
             marginBottom: 16,
+            opacity: isSignedIn ? 1 : 0.6,
           }}
         >
           <Text
@@ -422,6 +493,7 @@ export default function CheckoutScreen() {
           <TextInput
             value={phone}
             onChangeText={setPhone}
+            editable={!!isSignedIn}
             placeholder="Phone number"
             placeholderTextColor={COLORS.textSecondary}
             keyboardType="phone-pad"
@@ -441,6 +513,7 @@ export default function CheckoutScreen() {
             <TextInput
               value={address}
               onChangeText={setAddress}
+              editable={!!isSignedIn}
               placeholder="Delivery address"
               placeholderTextColor={COLORS.textSecondary}
               multiline
@@ -553,10 +626,10 @@ export default function CheckoutScreen() {
 
         <Pressable
           onPress={placeOrder}
-          disabled={placingOrder || items.length === 0}
+          disabled={placingOrder || items.length === 0 || !isSignedIn}
           style={{
             backgroundColor:
-              placingOrder || items.length === 0
+              placingOrder || items.length === 0 || !isSignedIn
                 ? COLORS.border
                 : COLORS.primary,
             borderRadius: 16,
@@ -567,7 +640,7 @@ export default function CheckoutScreen() {
           <Text
             style={{
               color:
-                placingOrder || items.length === 0
+                placingOrder || items.length === 0 || !isSignedIn
                   ? COLORS.textSecondary
                   : COLORS.white,
               fontSize: 16,

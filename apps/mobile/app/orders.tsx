@@ -8,6 +8,7 @@ import {
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useUser } from "@clerk/clerk-expo";
 import { fetchOrders, type OrderHistoryItem } from "../src/lib/products";
 import { COLORS } from "../src/constants/colors";
 
@@ -18,40 +19,31 @@ function formatDate(dateString: string) {
 function getStatusStyles(status: string) {
   switch (status.toLowerCase()) {
     case "completed":
-      return {
-        bg: "#DCFCE7",
-        text: "#166534",
-      };
+      return { bg: "#DCFCE7", text: "#166534" };
     case "processing":
-      return {
-        bg: "#DBEAFE",
-        text: "#1D4ED8",
-      };
+      return { bg: "#DBEAFE", text: "#1D4ED8" };
     case "cancelled":
-      return {
-        bg: "#FEE2E2",
-        text: "#991B1B",
-      };
+      return { bg: "#FEE2E2", text: "#991B1B" };
     case "pending":
     default:
-      return {
-        bg: "#FEF3C7",
-        text: "#B45309",
-      };
+      return { bg: "#FEF3C7", text: "#B45309" };
   }
 }
 
 export default function OrdersScreen() {
   const router = useRouter();
+  const { user, isLoaded, isSignedIn } = useUser();
+
   const [orders, setOrders] = useState<OrderHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadOrders = async () => {
     try {
+      if (!user) return;
       setLoading(true);
       setError(null);
-      const result = await fetchOrders();
+      const result = await fetchOrders(user.id);
       setOrders(result);
     } catch (err) {
       const message =
@@ -63,8 +55,87 @@ export default function OrdersScreen() {
   };
 
   useEffect(() => {
-    loadOrders();
-  }, []);
+    if (isLoaded && isSignedIn && user) {
+      loadOrders();
+    } else if (isLoaded) {
+      setLoading(false);
+    }
+  }, [isLoaded, isSignedIn, user]);
+
+  if (!isLoaded) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator size="large" color={COLORS.primaryDark} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!isSignedIn || !user) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+        <View style={{ flex: 1, justifyContent: "center", padding: 16 }}>
+          <View
+            style={{
+              backgroundColor: COLORS.surface,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              padding: 28,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontSize: 34, marginBottom: 16 }}>🔐</Text>
+
+            <Text
+              style={{
+                fontSize: 24,
+                fontWeight: "700",
+                color: COLORS.textPrimary,
+                marginBottom: 8,
+                textAlign: "center",
+              }}
+            >
+              Sign in to view orders
+            </Text>
+
+            <Text
+              style={{
+                fontSize: 15,
+                color: COLORS.textSecondary,
+                textAlign: "center",
+                lineHeight: 22,
+                marginBottom: 18,
+              }}
+            >
+              Your order history is tied to your account.
+            </Text>
+
+            <Pressable
+              onPress={() => router.push("/sign-in" as any)}
+              style={{
+                backgroundColor: COLORS.primary,
+                paddingHorizontal: 22,
+                paddingVertical: 13,
+                borderRadius: 999,
+              }}
+            >
+              <Text
+                style={{
+                  color: COLORS.white,
+                  fontWeight: "700",
+                  fontSize: 15,
+                }}
+              >
+                Sign In
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
@@ -153,12 +224,7 @@ export default function OrdersScreen() {
               padding: 16,
             }}
           >
-            <Text
-              style={{
-                color: COLORS.danger,
-                fontWeight: "700",
-              }}
-            >
+            <Text style={{ color: COLORS.danger, fontWeight: "700" }}>
               Error: {error}
             </Text>
           </View>
@@ -208,7 +274,7 @@ export default function OrdersScreen() {
                 marginBottom: 18,
               }}
             >
-              Orders placed from checkout will appear here.
+              Orders you place while signed in will appear here.
             </Text>
 
             <Pressable
@@ -237,8 +303,14 @@ export default function OrdersScreen() {
               const statusStyles = getStatusStyles(order.status);
 
               return (
-                <View
+                <Pressable
                   key={order.id}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/order/[id]",
+                      params: { id: order.id },
+                    } as any)
+                  }
                   style={{
                     backgroundColor: COLORS.surface,
                     borderRadius: 22,
@@ -446,7 +518,7 @@ export default function OrdersScreen() {
                       ₦{Number(order.total).toLocaleString()}
                     </Text>
                   </View>
-                </View>
+                </Pressable>
               );
             })}
           </View>
