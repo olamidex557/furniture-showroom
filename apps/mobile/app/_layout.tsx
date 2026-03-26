@@ -1,6 +1,7 @@
 import { Stack } from "expo-router";
 import { AppClerkProvider } from "../src/providers/AppClerkProvider";
 import { CartProvider } from "../src/context/CartContext";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 export default function RootLayout() {
   return (

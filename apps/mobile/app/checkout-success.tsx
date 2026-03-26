@@ -1,4 +1,5 @@
-import { SafeAreaView, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { COLORS } from "../src/constants/colors";
 

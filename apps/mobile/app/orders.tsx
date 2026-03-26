@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Pressable,
-  SafeAreaView,
   ScrollView,
   Text,
   View,
@@ -343,6 +343,16 @@ export default function OrdersScreen() {
                         }}
                       >
                         Order #{order.id.slice(0, 8)}
+                      </Text>
+
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          color: COLORS.textSecondary,
+                          marginBottom: 3,
+                        }}
+                      >
+                        {order.customer_name ?? "Customer"}
                       </Text>
 
                       <Text

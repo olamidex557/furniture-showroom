@@ -1,4 +1,11 @@
-import { Alert, Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useClerk, useUser } from "@clerk/clerk-expo";
@@ -193,7 +200,12 @@ export default function SettingsScreen() {
             icon="card-outline"
             label="Payment Methods"
             value="Coming soon"
-            onPress={() => Alert.alert("Coming soon", "Payment settings will be added later.")}
+            onPress={() =>
+              Alert.alert(
+                "Coming soon",
+                "Payment settings will be added later."
+              )
+            }
           />
 
           <Divider />
@@ -201,8 +213,8 @@ export default function SettingsScreen() {
           <MenuItem
             icon="location-outline"
             label="Delivery Address"
-            value="Coming soon"
-            onPress={() => Alert.alert("Coming soon", "Saved addresses will be added later.")}
+            value="Manage"
+            onPress={() => router.push("/delivery-address" as any)}
           />
 
           <Divider />
@@ -211,7 +223,12 @@ export default function SettingsScreen() {
             icon="notifications-outline"
             label="Notifications"
             value="Coming soon"
-            onPress={() => Alert.alert("Coming soon", "Notification settings will be added later.")}
+            onPress={() =>
+              Alert.alert(
+                "Coming soon",
+                "Notification settings will be added later."
+              )
+            }
           />
         </View>
 
@@ -252,7 +269,8 @@ export default function SettingsScreen() {
               lineHeight: 22,
             }}
           >
-            Manage your account, orders, and shopping preferences from one place.
+            Manage your account, orders, and shopping preferences from one
+            place.
           </Text>
         </View>
 

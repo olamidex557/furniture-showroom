@@ -2,16 +2,14 @@ import { supabase } from "./supabase";
 import type { Product } from "../types/product";
 
 export type AppSettings = {
-  id: string;
   delivery_fee: number;
   pickup_enabled: boolean;
-  created_at?: string;
-  updated_at?: string;
 };
 
 export type OrderHistoryItem = {
   id: string;
   clerk_user_id: string | null;
+  customer_name: string | null;
   status: string;
   delivery_method: string;
   phone: string | null;
@@ -73,29 +71,19 @@ export async function fetchProductById(
       )
     `)
     .eq("id", productId)
-    .single();
+    .maybeSingle();
 
   if (error) {
-    if (error.code === "PGRST116") {
-      return null;
-    }
-
     throw new Error(error.message);
   }
 
-  return (data as Product) ?? null;
+  return (data as Product | null) ?? null;
 }
 
 export async function fetchAppSettings(): Promise<AppSettings | null> {
   const { data, error } = await supabase
     .from("app_settings")
-    .select(`
-      id,
-      delivery_fee,
-      pickup_enabled,
-      created_at,
-      updated_at
-    `)
+    .select("delivery_fee, pickup_enabled")
     .limit(1)
     .maybeSingle();
 
@@ -114,6 +102,7 @@ export async function fetchOrders(
     .select(`
       id,
       clerk_user_id,
+      customer_name,
       status,
       delivery_method,
       phone,

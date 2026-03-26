@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Pressable,
-  SafeAreaView,
   ScrollView,
   Text,
   TextInput,
@@ -23,6 +23,7 @@ export default function CheckoutScreen() {
   const { items, subtotal, clearCart } = useCart();
 
   const [loadingSettings, setLoadingSettings] = useState(true);
+  const [loadingProfile, setLoadingProfile] = useState(true);
   const [placingOrder, setPlacingOrder] = useState(false);
 
   const [deliveryFee, setDeliveryFee] = useState(0);
@@ -30,6 +31,8 @@ export default function CheckoutScreen() {
 
   const [deliveryMethod, setDeliveryMethod] =
     useState<DeliveryMethod>("delivery");
+
+  const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -58,6 +61,53 @@ export default function CheckoutScreen() {
     loadSettings();
   }, []);
 
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!isLoaded) return;
+
+      if (!isSignedIn || !user) {
+        setLoadingProfile(false);
+        return;
+      }
+
+      try {
+        setLoadingProfile(true);
+
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("full_name, phone, delivery_address")
+          .eq("clerk_user_id", user.id)
+          .maybeSingle();
+
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        const fallbackName =
+          [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+          user.username ||
+          "";
+
+        setCustomerName(data?.full_name ?? fallbackName);
+        setPhone(data?.phone ?? "");
+        setAddress(data?.delivery_address ?? "");
+      } catch (error) {
+        console.error("Failed to load profile:", error);
+
+        const fallbackName =
+          [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+          user?.username ||
+          "";
+
+        setCustomerName(fallbackName);
+      } finally {
+        setLoadingProfile(false);
+      }
+    };
+
+    loadProfile();
+  }, [isLoaded, isSignedIn, user]);
+
   const finalDeliveryFee = useMemo(() => {
     return deliveryMethod === "delivery" ? deliveryFee : 0;
   }, [deliveryMethod, deliveryFee]);
@@ -85,6 +135,11 @@ export default function CheckoutScreen() {
         return;
       }
 
+      if (!customerName.trim()) {
+        setErrorMessage("Please enter your full name.");
+        return;
+      }
+
       if (!phone.trim()) {
         setErrorMessage("Please enter your phone number.");
         return;
@@ -97,7 +152,6 @@ export default function CheckoutScreen() {
 
       setPlacingOrder(true);
 
-      // 1. Validate stock before creating order
       for (const item of items) {
         const { data: product, error: productError } = await supabase
           .from("products")
@@ -126,12 +180,12 @@ export default function CheckoutScreen() {
         }
       }
 
-      // 2. Create order with clerk_user_id
       const { data: insertedOrder, error: orderError } = await supabase
         .from("orders")
         .insert({
           customer_id: null,
           clerk_user_id: user.id,
+          customer_name: customerName.trim(),
           subtotal,
           delivery_method: deliveryMethod,
           delivery_fee: finalDeliveryFee,
@@ -147,7 +201,6 @@ export default function CheckoutScreen() {
         throw new Error(orderError?.message || "Failed to create order.");
       }
 
-      // 3. Create order items
       const orderItemsPayload = items.map((item) => ({
         order_id: insertedOrder.id,
         product_id: item.productId,
@@ -164,7 +217,6 @@ export default function CheckoutScreen() {
         throw new Error(orderItemsError.message);
       }
 
-      // 4. Reduce stock only
       for (const item of items) {
         const { data: product, error: productError } = await supabase
           .from("products")
@@ -197,10 +249,7 @@ export default function CheckoutScreen() {
         }
       }
 
-      // 5. Clear cart and go to success screen
       clearCart();
-      setPhone("");
-      setAddress("");
 
       router.replace({
         pathname: "/checkout-success",
@@ -215,7 +264,7 @@ export default function CheckoutScreen() {
     }
   };
 
-  if (loadingSettings || !isLoaded) {
+  if (loadingSettings || !isLoaded || loadingProfile) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
         <View
@@ -295,7 +344,7 @@ export default function CheckoutScreen() {
             marginBottom: 20,
           }}
         >
-          Enter your details to place your order
+          Your saved delivery details have been filled in automatically
         </Text>
 
         {!isSignedIn ? (
@@ -479,16 +528,54 @@ export default function CheckoutScreen() {
             opacity: isSignedIn ? 1 : 0.6,
           }}
         >
-          <Text
+          <View
             style={{
-              fontSize: 16,
-              fontWeight: "700",
-              color: COLORS.textPrimary,
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
               marginBottom: 12,
             }}
           >
-            Contact Details
-          </Text>
+            <Text
+              style={{
+                fontSize: 16,
+                fontWeight: "700",
+                color: COLORS.textPrimary,
+              }}
+            >
+              Contact Details
+            </Text>
+
+            <Pressable onPress={() => router.push("/delivery-address" as any)}>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: "700",
+                  color: COLORS.primary,
+                }}
+              >
+                Edit saved address
+              </Text>
+            </Pressable>
+          </View>
+
+          <TextInput
+            value={customerName}
+            onChangeText={setCustomerName}
+            editable={!!isSignedIn}
+            placeholder="Full name"
+            placeholderTextColor={COLORS.textSecondary}
+            style={{
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              borderRadius: 14,
+              paddingHorizontal: 14,
+              paddingVertical: 14,
+              marginBottom: 12,
+              backgroundColor: COLORS.background,
+              color: COLORS.textPrimary,
+            }}
+          />
 
           <TextInput
             value={phone}
