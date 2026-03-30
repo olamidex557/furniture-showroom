@@ -16,20 +16,25 @@ import { supabase } from "../src/lib/supabase";
 import { useCart } from "../src/context/CartContext";
 import { COLORS } from "../src/constants/colors";
 import { sendInAppNotification } from "../src/lib/in-app-notifications";
-import { fetchAppSettings } from "../src/lib/products";
 import AnimatedScreen from "../src/components/AnimatedScreen";
 import AnimatedCard from "../src/components/AnimatedCard";
 import {
   createOrderDtoSchema,
   type CreateOrderDto,
 } from "@furniture/shared/dto/order/create-order.dto";
+import {
+  fetchActiveDeliveryZones,
+  type DeliveryZone,
+} from "../src/lib/delivery-zones";
 
 type DeliveryMethod = "delivery" | "pickup";
 
 type ProfileRow = {
   full_name: string | null;
   phone: string | null;
-  delivery_address: string | null;
+  delivery_zone: string | null;
+  street_address: string | null;
+  landmark: string | null;
 };
 
 type LiveProductStock = {
@@ -47,17 +52,27 @@ export default function CheckoutScreen() {
   const cartItems = items;
 
   const [loadingProfile, setLoadingProfile] = useState(true);
-  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [loadingZones, setLoadingZones] = useState(true);
   const [placingOrder, setPlacingOrder] = useState(false);
 
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
+  const [streetAddress, setStreetAddress] = useState("");
+  const [landmark, setLandmark] = useState("");
+
+  const [savedZoneName, setSavedZoneName] = useState<string>("");
 
   const [deliveryMethod, setDeliveryMethod] =
     useState<DeliveryMethod>("delivery");
-  const [deliveryFee, setDeliveryFee] = useState(0);
-  const [pickupEnabled, setPickupEnabled] = useState(true);
+
+  const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([]);
+  const [selectedZoneId, setSelectedZoneId] = useState<string>("");
+
+  const pickupEnabled = true;
+
+  const selectedZone = useMemo(() => {
+    return deliveryZones.find((zone) => zone.id === selectedZoneId) ?? null;
+  }, [deliveryZones, selectedZoneId]);
 
   const subtotal = useMemo(() => {
     return cartItems.reduce((sum, item) => {
@@ -66,35 +81,44 @@ export default function CheckoutScreen() {
   }, [cartItems]);
 
   const finalDeliveryFee = useMemo(() => {
-    return deliveryMethod === "delivery" ? deliveryFee : 0;
-  }, [deliveryMethod, deliveryFee]);
+    if (deliveryMethod === "pickup") return 0;
+    return Number(selectedZone?.fee ?? 0);
+  }, [deliveryMethod, selectedZone]);
 
   const total = useMemo(() => {
     return subtotal + finalDeliveryFee;
   }, [subtotal, finalDeliveryFee]);
 
   useEffect(() => {
-    const loadSettings = async () => {
+    const loadZones = async () => {
       try {
-        const settings = await fetchAppSettings();
+        const zones = await fetchActiveDeliveryZones();
+        setDeliveryZones(zones);
 
-        if (settings) {
-          setDeliveryFee(Number(settings.delivery_fee ?? 0));
-          setPickupEnabled(Boolean(settings.pickup_enabled));
+        if (zones.length > 0) {
+          if (savedZoneName) {
+            const matchedZone = zones.find(
+              (zone) => zone.name.toLowerCase() === savedZoneName.toLowerCase()
+            );
 
-          if (!settings.pickup_enabled) {
-            setDeliveryMethod("delivery");
+            if (matchedZone) {
+              setSelectedZoneId(matchedZone.id);
+            } else {
+              setSelectedZoneId(zones[0].id);
+            }
+          } else {
+            setSelectedZoneId(zones[0].id);
           }
         }
       } catch (error) {
-        console.log("Failed to load app settings:", error);
+        console.log("Failed to load delivery zones:", error);
       } finally {
-        setLoadingSettings(false);
+        setLoadingZones(false);
       }
     };
 
-    loadSettings();
-  }, []);
+    loadZones();
+  }, [savedZoneName]);
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -108,7 +132,9 @@ export default function CheckoutScreen() {
       try {
         const { data, error } = await supabase
           .from("profiles")
-          .select("full_name, phone, delivery_address")
+          .select(
+            "full_name, phone, delivery_zone, street_address, landmark"
+          )
           .eq("clerk_user_id", user.id)
           .maybeSingle();
 
@@ -125,7 +151,9 @@ export default function CheckoutScreen() {
 
         setCustomerName(profile?.full_name ?? fallbackName);
         setPhone(profile?.phone ?? "");
-        setAddress(profile?.delivery_address ?? "");
+        setStreetAddress(profile?.street_address ?? "");
+        setLandmark(profile?.landmark ?? "");
+        setSavedZoneName(profile?.delivery_zone ?? "");
       } catch (error) {
         console.log("Failed to load profile:", error);
 
@@ -143,11 +171,23 @@ export default function CheckoutScreen() {
     loadProfile();
   }, [isLoaded, isSignedIn, user]);
 
+  const buildDeliveryAddress = () => {
+    if (deliveryMethod !== "delivery") return null;
+
+    return [
+      selectedZone?.name ?? "",
+      streetAddress.trim(),
+      landmark.trim() ? `Landmark: ${landmark.trim()}` : "",
+    ]
+      .filter(Boolean)
+      .join(" — ");
+  };
+
   const buildOrderDto = (): CreateOrderDto => {
     return {
       customerName: customerName.trim(),
       phone: phone.trim(),
-      address: deliveryMethod === "delivery" ? address.trim() : null,
+      address: buildDeliveryAddress(),
       deliveryMethod,
       items: cartItems.map((item) => ({
         productId: item.productId,
@@ -202,6 +242,19 @@ export default function CheckoutScreen() {
         return;
       }
 
+      if (deliveryMethod === "delivery" && deliveryZones.length === 0) {
+        Alert.alert(
+          "Delivery unavailable",
+          "No delivery zones are available at the moment."
+        );
+        return;
+      }
+
+      if (deliveryMethod === "delivery" && !selectedZone) {
+        Alert.alert("Select location", "Please choose a delivery location.");
+        return;
+      }
+
       const dtoCandidate = buildOrderDto();
       const parsed = createOrderDtoSchema.safeParse(dtoCandidate);
 
@@ -232,7 +285,7 @@ export default function CheckoutScreen() {
           status: "pending",
           delivery_method: dto.deliveryMethod,
           phone: dto.phone,
-          address: dto.deliveryMethod === "delivery" ? dto.address : null,
+          address: dto.address,
         })
         .select("id")
         .single();
@@ -289,8 +342,11 @@ export default function CheckoutScreen() {
             email: user.primaryEmailAddress?.emailAddress ?? null,
             full_name: dto.customerName,
             phone: dto.phone,
-            delivery_address:
-              dto.deliveryMethod === "delivery" ? dto.address : address || null,
+            delivery_zone:
+              deliveryMethod === "delivery" ? selectedZone?.name ?? null : null,
+            street_address:
+              deliveryMethod === "delivery" ? streetAddress.trim() : null,
+            landmark: deliveryMethod === "delivery" ? landmark.trim() : null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "clerk_user_id" }
@@ -309,13 +365,13 @@ export default function CheckoutScreen() {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Something went wrong";
-      Alert.alert("Stock Check", message);
+      Alert.alert("Checkout", message);
     } finally {
       setPlacingOrder(false);
     }
   };
 
-  if (!isLoaded || loadingProfile || loadingSettings) {
+  if (!isLoaded || loadingProfile || loadingZones) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
         <View
@@ -532,6 +588,106 @@ export default function CheckoutScreen() {
             </View>
           </AnimatedCard>
 
+          {deliveryMethod === "delivery" ? (
+            <AnimatedCard
+              delay={130}
+              style={{
+                backgroundColor: COLORS.surface,
+                borderRadius: 22,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                padding: 18,
+                marginBottom: 16,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "700",
+                  color: COLORS.textPrimary,
+                  marginBottom: 12,
+                }}
+              >
+                Delivery Location
+              </Text>
+
+              {deliveryZones.length === 0 ? (
+                <Text
+                  style={{
+                    color: COLORS.textSecondary,
+                    fontSize: 14,
+                    lineHeight: 22,
+                  }}
+                >
+                  No delivery zones are available at the moment.
+                </Text>
+              ) : (
+                <View style={{ gap: 10 }}>
+                  {deliveryZones.map((zone) => {
+                    const active = selectedZoneId === zone.id;
+
+                    return (
+                      <Pressable
+                        key={zone.id}
+                        onPress={() => setSelectedZoneId(zone.id)}
+                        style={{
+                          borderRadius: 16,
+                          borderWidth: 1,
+                          borderColor: active ? COLORS.primary : COLORS.border,
+                          backgroundColor: active
+                            ? COLORS.accent
+                            : COLORS.background,
+                          padding: 14,
+                        }}
+                      >
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 12,
+                          }}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={{
+                                fontSize: 15,
+                                fontWeight: "700",
+                                color: COLORS.textPrimary,
+                                marginBottom: 4,
+                              }}
+                            >
+                              {zone.name}
+                            </Text>
+
+                            <Text
+                              style={{
+                                fontSize: 13,
+                                color: COLORS.textSecondary,
+                              }}
+                            >
+                              Delivery fee applies automatically
+                            </Text>
+                          </View>
+
+                          <Text
+                            style={{
+                              fontSize: 15,
+                              fontWeight: "800",
+                              color: COLORS.primaryDark,
+                            }}
+                          >
+                            ₦{Number(zone.fee).toLocaleString()}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+            </AnimatedCard>
+          ) : null}
+
           <AnimatedCard
             delay={160}
             style={{
@@ -590,24 +746,43 @@ export default function CheckoutScreen() {
             />
 
             {deliveryMethod === "delivery" ? (
-              <TextInput
-                value={address}
-                onChangeText={setAddress}
-                placeholder="Delivery address"
-                placeholderTextColor={COLORS.textSecondary}
-                multiline
-                style={{
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  borderRadius: 14,
-                  paddingHorizontal: 14,
-                  paddingVertical: 14,
-                  minHeight: 100,
-                  backgroundColor: COLORS.background,
-                  color: COLORS.textPrimary,
-                  textAlignVertical: "top",
-                }}
-              />
+              <>
+                <TextInput
+                  value={streetAddress}
+                  onChangeText={setStreetAddress}
+                  placeholder="Street address"
+                  placeholderTextColor={COLORS.textSecondary}
+                  multiline
+                  style={{
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    borderRadius: 14,
+                    paddingHorizontal: 14,
+                    paddingVertical: 14,
+                    minHeight: 90,
+                    backgroundColor: COLORS.background,
+                    color: COLORS.textPrimary,
+                    textAlignVertical: "top",
+                    marginBottom: 12,
+                  }}
+                />
+
+                <TextInput
+                  value={landmark}
+                  onChangeText={setLandmark}
+                  placeholder="Nearest landmark (optional)"
+                  placeholderTextColor={COLORS.textSecondary}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    borderRadius: 14,
+                    paddingHorizontal: 14,
+                    paddingVertical: 14,
+                    backgroundColor: COLORS.background,
+                    color: COLORS.textPrimary,
+                  }}
+                />
+              </>
             ) : null}
           </AnimatedCard>
 

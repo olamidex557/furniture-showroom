@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -9,35 +8,48 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { router } from "expo-router";
-import { useUser } from "@clerk/clerk-expo";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { MotiView } from "moti";
+import { useUser } from "@clerk/clerk-expo";
 import { supabase } from "../src/lib/supabase";
+import { COLORS } from "../src/constants/colors";
+import AnimatedScreen from "../src/components/AnimatedScreen";
+import AnimatedCard from "../src/components/AnimatedCard";
+import {
+  fetchActiveDeliveryZones,
+  type DeliveryZone,
+} from "../src/lib/delivery-zones";
 
-const COLORS = {
-  background: "#F7F7F5",
-  card: "#FFFFFF",
-  text: "#111827",
-  subtext: "#6B7280",
-  border: "#E5E7EB",
-  primary: "#355C5A",
-  danger: "#B42318",
+type ProfileRow = {
+  full_name: string | null;
+  phone: string | null;
+  delivery_zone: string | null;
+  street_address: string | null;
+  landmark: string | null;
 };
 
 export default function DeliveryAddressScreen() {
+  const router = useRouter();
   const { user, isLoaded, isSignedIn } = useUser();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
+  const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([]);
+  const [selectedZoneId, setSelectedZoneId] = useState("");
 
-  const [errorMessage, setErrorMessage] = useState("");
+  const [phone, setPhone] = useState("");
+  const [streetAddress, setStreetAddress] = useState("");
+  const [landmark, setLandmark] = useState("");
+
+  const selectedZone = useMemo(() => {
+    return deliveryZones.find((zone) => zone.id === selectedZoneId) ?? null;
+  }, [deliveryZones, selectedZoneId]);
 
   useEffect(() => {
-    const loadProfile = async () => {
+    const loadPageData = async () => {
       if (!isLoaded) return;
 
       if (!isSignedIn || !user) {
@@ -46,78 +58,99 @@ export default function DeliveryAddressScreen() {
       }
 
       try {
-        setLoading(true);
-        setErrorMessage("");
+        const [zones, profileResult] = await Promise.all([
+          fetchActiveDeliveryZones(),
+          supabase
+            .from("profiles")
+            .select(
+              "full_name, phone, delivery_zone, street_address, landmark"
+            )
+            .eq("clerk_user_id", user.id)
+            .maybeSingle(),
+        ]);
 
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("full_name, phone, delivery_address")
-          .eq("clerk_user_id", user.id)
-          .maybeSingle();
+        setDeliveryZones(zones);
 
-        if (error) {
-          throw new Error(error.message);
+        if (profileResult.error) {
+          throw new Error(profileResult.error.message);
         }
 
-        const fallbackName =
-          [user.firstName, user.lastName].filter(Boolean).join(" ") ||
-          user.username ||
-          "";
+        const profile = (profileResult.data as ProfileRow | null) ?? null;
 
-        setFullName(data?.full_name ?? fallbackName);
-        setPhone(data?.phone ?? "");
-        setAddress(data?.delivery_address ?? "");
+        setPhone(profile?.phone ?? "");
+        setStreetAddress(profile?.street_address ?? "");
+        setLandmark(profile?.landmark ?? "");
+
+        if (zones.length > 0) {
+          if (profile?.delivery_zone) {
+            const matchedZone = zones.find(
+              (zone) =>
+                zone.name.toLowerCase() === profile.delivery_zone?.toLowerCase()
+            );
+
+            if (matchedZone) {
+              setSelectedZoneId(matchedZone.id);
+            } else {
+              setSelectedZoneId(zones[0].id);
+            }
+          } else {
+            setSelectedZoneId(zones[0].id);
+          }
+        }
       } catch (error) {
         const message =
           error instanceof Error
             ? error.message
-            : "Failed to load delivery address.";
-        setErrorMessage(message);
+            : "Failed to load delivery address details.";
+        Alert.alert("Error", message);
       } finally {
         setLoading(false);
       }
     };
 
-    loadProfile();
+    loadPageData();
   }, [isLoaded, isSignedIn, user]);
 
-  const saveAddress = async () => {
+  const handleSave = async () => {
     if (!isSignedIn || !user) {
       Alert.alert("Sign in required", "Please sign in to save your address.");
       return;
     }
 
-    if (!fullName.trim()) {
-      setErrorMessage("Please enter your full name.");
+    if (!selectedZone) {
+      Alert.alert("Select location", "Please choose a delivery zone.");
+      return;
+    }
+
+    if (!streetAddress.trim()) {
+      Alert.alert("Missing address", "Please enter your street address.");
       return;
     }
 
     if (!phone.trim()) {
-      setErrorMessage("Please enter your phone number.");
-      return;
-    }
-
-    if (!address.trim()) {
-      setErrorMessage("Please enter your delivery address.");
+      Alert.alert("Missing phone", "Please enter your phone number.");
       return;
     }
 
     try {
       setSaving(true);
-      setErrorMessage("");
 
-      const payload = {
-        clerk_user_id: user.id,
-        email: user.primaryEmailAddress?.emailAddress ?? null,
-        full_name: fullName.trim(),
-        phone: phone.trim(),
-        delivery_address: address.trim(),
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase.from("profiles").upsert(payload, {
-        onConflict: "clerk_user_id",
-      });
+      const { error } = await supabase.from("profiles").upsert(
+        {
+          clerk_user_id: user.id,
+          email: user.primaryEmailAddress?.emailAddress ?? null,
+          full_name:
+            [user.firstName, user.lastName].filter(Boolean).join(" ") ||
+            user.username ||
+            null,
+          phone: phone.trim(),
+          delivery_zone: selectedZone.name,
+          street_address: streetAddress.trim(),
+          landmark: landmark.trim() || null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "clerk_user_id" }
+      );
 
       if (error) {
         throw new Error(error.message);
@@ -127,14 +160,16 @@ export default function DeliveryAddressScreen() {
       router.back();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to save address.";
-      setErrorMessage(message);
+        error instanceof Error
+          ? error.message
+          : "Failed to save delivery address.";
+      Alert.alert("Error", message);
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
+  if (loading || !isLoaded) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
         <View
@@ -144,8 +179,15 @@ export default function DeliveryAddressScreen() {
             justifyContent: "center",
           }}
         >
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={{ marginTop: 12, color: COLORS.subtext }}>
+          <ActivityIndicator size="large" color={COLORS.primaryDark} />
+          <Text
+            style={{
+              marginTop: 12,
+              color: COLORS.textSecondary,
+              fontSize: 16,
+              fontWeight: "600",
+            }}
+          >
             Loading address...
           </Text>
         </View>
@@ -153,204 +195,366 @@ export default function DeliveryAddressScreen() {
     );
   }
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
-      >
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            marginBottom: 24,
-          }}
-        >
-          <Pressable
-            onPress={() => router.back()}
+  if (!isSignedIn || !user) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+        <AnimatedScreen>
+          <View
             style={{
-              width: 42,
-              height: 42,
-              borderRadius: 14,
-              backgroundColor: COLORS.card,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              alignItems: "center",
+              flex: 1,
+              padding: 20,
               justifyContent: "center",
-              marginRight: 14,
             }}
           >
-            <Ionicons name="chevron-back" size={20} color={COLORS.text} />
-          </Pressable>
+            <AnimatedCard
+              style={{
+                backgroundColor: COLORS.surface,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                padding: 22,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 26,
+                  fontWeight: "700",
+                  color: COLORS.textPrimary,
+                  marginBottom: 8,
+                }}
+              >
+                Sign in required
+              </Text>
 
-          <View>
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: COLORS.textSecondary,
+                  lineHeight: 22,
+                  marginBottom: 18,
+                }}
+              >
+                You need to sign in before managing your delivery address.
+              </Text>
+
+              <Pressable
+                onPress={() => router.push("/sign-in" as any)}
+                style={{
+                  backgroundColor: COLORS.primary,
+                  borderRadius: 16,
+                  paddingVertical: 15,
+                  alignItems: "center",
+                }}
+              >
+                <Text
+                  style={{
+                    color: COLORS.white,
+                    fontWeight: "700",
+                    fontSize: 16,
+                  }}
+                >
+                  Sign In
+                </Text>
+              </Pressable>
+            </AnimatedCard>
+          </View>
+        </AnimatedScreen>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <AnimatedScreen>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        >
+          <MotiView
+            from={{ opacity: 0, translateY: -8 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: "timing", duration: 350 }}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 18,
+            }}
+          >
+            <Pressable
+              onPress={() => router.back()}
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 14,
+                backgroundColor: COLORS.surface,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Ionicons
+                name="chevron-back"
+                size={20}
+                color={COLORS.textPrimary}
+              />
+            </Pressable>
+
             <Text
               style={{
-                fontSize: 22,
+                fontSize: 20,
                 fontWeight: "700",
-                color: COLORS.text,
+                color: COLORS.textPrimary,
               }}
             >
               Delivery Address
             </Text>
-            <Text
-              style={{
-                marginTop: 4,
-                fontSize: 13,
-                color: COLORS.subtext,
-              }}
-            >
-              Save your delivery details for faster checkout
-            </Text>
-          </View>
-        </View>
 
-        {!!errorMessage && (
-          <View
+            <View style={{ width: 42 }} />
+          </MotiView>
+
+          <AnimatedCard
+            delay={80}
             style={{
-              backgroundColor: "#FEF3F2",
+              backgroundColor: COLORS.surface,
+              borderRadius: 22,
               borderWidth: 1,
-              borderColor: "#FDA29B",
-              borderRadius: 14,
-              padding: 12,
+              borderColor: COLORS.border,
+              padding: 18,
               marginBottom: 16,
             }}
           >
             <Text
               style={{
-                color: COLORS.danger,
-                fontSize: 14,
-                fontWeight: "600",
-                textAlign: "center",
+                fontSize: 24,
+                fontWeight: "700",
+                color: COLORS.textPrimary,
+                marginBottom: 8,
               }}
             >
-              {errorMessage}
+              Saved Delivery Details
             </Text>
-          </View>
-        )}
 
-        <View
-          style={{
-            backgroundColor: COLORS.card,
-            borderRadius: 24,
-            padding: 18,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-          }}
-        >
-          <Text
+            <Text
+              style={{
+                fontSize: 14,
+                color: COLORS.textSecondary,
+                lineHeight: 22,
+              }}
+            >
+              Choose your delivery zone and save your street address for faster
+              checkout.
+            </Text>
+          </AnimatedCard>
+
+          <AnimatedCard
+            delay={130}
             style={{
-              fontSize: 13,
-              fontWeight: "600",
-              color: COLORS.text,
-              marginBottom: 8,
-            }}
-          >
-            Full Name
-          </Text>
-          <TextInput
-            value={fullName}
-            onChangeText={setFullName}
-            placeholder="John Doe"
-            placeholderTextColor="#9CA3AF"
-            style={{
-              height: 54,
+              backgroundColor: COLORS.surface,
+              borderRadius: 22,
               borderWidth: 1,
               borderColor: COLORS.border,
-              borderRadius: 14,
-              paddingHorizontal: 16,
-              color: COLORS.text,
-              backgroundColor: "#FAFAFA",
-              marginBottom: 14,
-            }}
-          />
-
-          <Text
-            style={{
-              fontSize: 13,
-              fontWeight: "600",
-              color: COLORS.text,
-              marginBottom: 8,
+              padding: 18,
+              marginBottom: 16,
             }}
           >
-            Phone Number
-          </Text>
-          <TextInput
-            value={phone}
-            onChangeText={setPhone}
-            keyboardType="phone-pad"
-            placeholder="08012345678"
-            placeholderTextColor="#9CA3AF"
-            style={{
-              height: 54,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              borderRadius: 14,
-              paddingHorizontal: 16,
-              color: COLORS.text,
-              backgroundColor: "#FAFAFA",
-              marginBottom: 14,
-            }}
-          />
+            <Text
+              style={{
+                fontSize: 16,
+                fontWeight: "700",
+                color: COLORS.textPrimary,
+                marginBottom: 12,
+              }}
+            >
+              Delivery Zone
+            </Text>
 
-          <Text
-            style={{
-              fontSize: 13,
-              fontWeight: "600",
-              color: COLORS.text,
-              marginBottom: 8,
-            }}
-          >
-            Delivery Address
-          </Text>
-          <TextInput
-            value={address}
-            onChangeText={setAddress}
-            multiline
-            placeholder="Enter your full delivery address"
-            placeholderTextColor="#9CA3AF"
-            style={{
-              minHeight: 120,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              borderRadius: 14,
-              paddingHorizontal: 16,
-              paddingVertical: 14,
-              color: COLORS.text,
-              backgroundColor: "#FAFAFA",
-              textAlignVertical: "top",
-              marginBottom: 18,
-            }}
-          />
-
-          <Pressable
-            onPress={saveAddress}
-            disabled={saving}
-            style={{
-              height: 54,
-              borderRadius: 16,
-              backgroundColor: COLORS.primary,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: saving ? 0.7 : 1,
-            }}
-          >
-            {saving ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
+            {deliveryZones.length === 0 ? (
               <Text
                 style={{
-                  color: "#FFFFFF",
-                  fontSize: 16,
-                  fontWeight: "700",
+                  color: COLORS.textSecondary,
+                  fontSize: 14,
+                  lineHeight: 22,
                 }}
               >
-                Save Address
+                No delivery zones are available at the moment.
               </Text>
+            ) : (
+              <View style={{ gap: 10 }}>
+                {deliveryZones.map((zone) => {
+                  const active = selectedZoneId === zone.id;
+
+                  return (
+                    <Pressable
+                      key={zone.id}
+                      onPress={() => setSelectedZoneId(zone.id)}
+                      style={{
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: active ? COLORS.primary : COLORS.border,
+                        backgroundColor: active
+                          ? COLORS.accent
+                          : COLORS.background,
+                        padding: 14,
+                      }}
+                    >
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 12,
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={{
+                              fontSize: 15,
+                              fontWeight: "700",
+                              color: COLORS.textPrimary,
+                              marginBottom: 4,
+                            }}
+                          >
+                            {zone.name}
+                          </Text>
+
+                          <Text
+                            style={{
+                              fontSize: 13,
+                              color: COLORS.textSecondary,
+                            }}
+                          >
+                            Delivery fee set by admin
+                          </Text>
+                        </View>
+
+                        <Text
+                          style={{
+                            fontSize: 15,
+                            fontWeight: "800",
+                            color: COLORS.primaryDark,
+                          }}
+                        >
+                          ₦{Number(zone.fee).toLocaleString()}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
             )}
-          </Pressable>
-        </View>
-      </ScrollView>
+          </AnimatedCard>
+
+          <AnimatedCard
+            delay={180}
+            style={{
+              backgroundColor: COLORS.surface,
+              borderRadius: 22,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              padding: 18,
+              marginBottom: 18,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 16,
+                fontWeight: "700",
+                color: COLORS.textPrimary,
+                marginBottom: 12,
+              }}
+            >
+              Address Details
+            </Text>
+
+            <TextInput
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="Phone number"
+              placeholderTextColor={COLORS.textSecondary}
+              keyboardType="phone-pad"
+              style={{
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                borderRadius: 14,
+                paddingHorizontal: 14,
+                paddingVertical: 14,
+                marginBottom: 12,
+                backgroundColor: COLORS.background,
+                color: COLORS.textPrimary,
+              }}
+            />
+
+            <TextInput
+              value={streetAddress}
+              onChangeText={setStreetAddress}
+              placeholder="Street address"
+              placeholderTextColor={COLORS.textSecondary}
+              multiline
+              style={{
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                borderRadius: 14,
+                paddingHorizontal: 14,
+                paddingVertical: 14,
+                minHeight: 100,
+                backgroundColor: COLORS.background,
+                color: COLORS.textPrimary,
+                textAlignVertical: "top",
+                marginBottom: 12,
+              }}
+            />
+
+            <TextInput
+              value={landmark}
+              onChangeText={setLandmark}
+              placeholder="Nearest landmark (optional)"
+              placeholderTextColor={COLORS.textSecondary}
+              style={{
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                borderRadius: 14,
+                paddingHorizontal: 14,
+                paddingVertical: 14,
+                backgroundColor: COLORS.background,
+                color: COLORS.textPrimary,
+              }}
+            />
+          </AnimatedCard>
+
+          <MotiView
+            from={{ opacity: 0, translateY: 18, scale: 0.98 }}
+            animate={{ opacity: 1, translateY: 0, scale: 1 }}
+            transition={{ type: "timing", duration: 380, delay: 240 }}
+          >
+            <Pressable
+              onPress={handleSave}
+              disabled={saving}
+              style={{
+                backgroundColor: saving ? COLORS.border : "#000000",
+                borderRadius: 16,
+                paddingVertical: 17,
+                alignItems: "center",
+              }}
+            >
+              {saving ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text
+                  style={{
+                    color: "#FFFFFF",
+                    fontSize: 16,
+                    fontWeight: "700",
+                  }}
+                >
+                  Save Address
+                </Text>
+              )}
+            </Pressable>
+          </MotiView>
+        </ScrollView>
+      </AnimatedScreen>
     </SafeAreaView>
   );
 }
