@@ -1,10 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import gsap from "gsap";
 
 export default function AdminLandingClient() {
+  const router = useRouter();
   const pageRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -37,7 +38,7 @@ export default function AdminLandingClient() {
         <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
           <section className="landing-hero admin-card p-8 lg:p-10">
             <div className="mb-6 inline-flex rounded-full border border-stone-200 bg-stone-100 px-4 py-2 text-sm font-semibold text-stone-700">
-              <strong>IVORYWOOD </strong> Admin Portal
+              IVORYWOOD Admin Portal
             </div>
 
             <h1 className="admin-title max-w-3xl">
@@ -51,17 +52,29 @@ export default function AdminLandingClient() {
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link href="/admin" className="admin-btn-primary">
+              <button
+                type="button"
+                onClick={() => router.push("/admin")}
+                className="admin-btn-primary"
+              >
                 Open Admin Dashboard
-              </Link>
+              </button>
 
-              <Link href="/admin/products" className="admin-btn-secondary">
+              <button
+                type="button"
+                onClick={() => router.push("/admin/products")}
+                className="admin-btn-secondary"
+              >
                 Manage Products
-              </Link>
+              </button>
 
-              <Link href="/admin/orders" className="admin-btn-secondary">
+              <button
+                type="button"
+                onClick={() => router.push("/admin/orders")}
+                className="admin-btn-secondary"
+              >
                 Manage Orders
-              </Link>
+              </button>
             </div>
 
             <div className="mt-10 grid gap-4 sm:grid-cols-3">
@@ -142,20 +155,29 @@ export default function AdminLandingClient() {
               </h3>
 
               <div className="mt-4 space-y-3">
-                <Link
-                  href="/admin/products/new"
+                <button
+                  type="button"
+                  onClick={() => router.push("/admin/products/new")}
                   className="admin-btn-secondary w-full"
                 >
                   Add New Product
-                </Link>
+                </button>
 
-                <Link href="/admin/orders" className="admin-btn-secondary w-full">
+                <button
+                  type="button"
+                  onClick={() => router.push("/admin/orders")}
+                  className="admin-btn-secondary w-full"
+                >
                   Open Orders
-                </Link>
+                </button>
 
-                <Link href="/admin/products" className="admin-btn-secondary w-full">
+                <button
+                  type="button"
+                  onClick={() => router.push("/admin/products")}
+                  className="admin-btn-secondary w-full"
+                >
                   Open Catalog
-                </Link>
+                </button>
               </div>
             </div>
           </aside>

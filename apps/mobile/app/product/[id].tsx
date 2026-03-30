@@ -1,75 +1,60 @@
-import { useEffect, useMemo, useState } from "react";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
-  StatusBar,
   Text,
   View,
 } from "react-native";
-import { Href, useLocalSearchParams, useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { MotiView } from "moti";
 import { fetchProductById } from "../../src/lib/products";
-import type { Product } from "../../src/types/product";
 import { useCart } from "../../src/context/CartContext";
-import { productToCartItem } from "../../src/types/cart";
 import { COLORS } from "../../src/constants/colors";
+import type { Product } from "../../src/types/product";
+import AnimatedScreen from "../../src/components/AnimatedScreen";
+import AnimatedCard from "../../src/components/AnimatedCard";
 
 export default function ProductDetailsScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const { addToCart } = useCart();
+  const params = useLocalSearchParams<{ id: string }>();
+  const cart = useCart() as any;
+
+  const addItem =
+    cart.addItem ||
+    cart.addToCart ||
+    ((item: any) => {
+      console.log("Add item handler missing", item);
+    });
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
-  const [quantity, setQuantity] = useState(1);
-  const [stockWarning, setStockWarning] = useState("");
-
-  const loadProduct = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      if (!id) {
-        throw new Error("Missing product ID.");
-      }
-
-      const result = await fetchProductById(id);
-
-      if (!result) {
-        throw new Error("Product not found.");
-      }
-
-      setProduct(result);
-      setSelectedImageIndex(0);
-      setQuantity(1);
-      setStockWarning("");
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to load product.";
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    loadProduct();
-  }, [id]);
+    const loadProduct = async () => {
+      try {
+        setLoading(true);
 
-  const selectedImage = useMemo(() => {
-    if (!product) return null;
-    return product.product_images?.[selectedImageIndex]?.image_url ?? null;
-  }, [product, selectedImageIndex]);
+        if (!params.id) return;
+
+        const data = await fetchProductById(String(params.id));
+        setProduct(data);
+      } catch (error) {
+        console.log("Failed to load product:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadProduct();
+  }, [params.id]);
 
   if (loading) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-        <StatusBar barStyle="light-content" />
         <View
           style={{
             flex: 1,
@@ -78,7 +63,14 @@ export default function ProductDetailsScreen() {
           }}
         >
           <ActivityIndicator size="large" color={COLORS.primaryDark} />
-          <Text style={{ marginTop: 12, color: COLORS.textSecondary }}>
+          <Text
+            style={{
+              marginTop: 12,
+              color: COLORS.textSecondary,
+              fontSize: 16,
+              fontWeight: "600",
+            }}
+          >
             Loading product...
           </Text>
         </View>
@@ -86,436 +78,349 @@ export default function ProductDetailsScreen() {
     );
   }
 
-  if (error || !product) {
+  if (!product) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-        <StatusBar barStyle="dark-content" />
-        <View style={{ flex: 1, padding: 16, justifyContent: "center" }}>
-          <Text
+        <AnimatedScreen>
+          <View
             style={{
-              fontSize: 24,
-              fontWeight: "700",
-              color: COLORS.primaryDark,
-              marginBottom: 8,
+              flex: 1,
+              padding: 20,
+              justifyContent: "center",
             }}
           >
-            Product Details
-          </Text>
+            <AnimatedCard
+              style={{
+                backgroundColor: COLORS.surface,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                padding: 24,
+                alignItems: "center",
+              }}
+            >
+              <Ionicons
+                name="alert-circle-outline"
+                size={44}
+                color={COLORS.textSecondary}
+              />
 
-          <Text style={{ color: COLORS.danger, marginBottom: 16 }}>
-            {error ?? "Unable to load product."}
-          </Text>
+              <Text
+                style={{
+                  marginTop: 12,
+                  fontSize: 22,
+                  fontWeight: "700",
+                  color: COLORS.textPrimary,
+                  marginBottom: 6,
+                }}
+              >
+                Product not found
+              </Text>
 
-          <Pressable
-            onPress={() => router.back()}
-            style={{
-              backgroundColor: COLORS.primaryDark,
-              borderRadius: 14,
-              paddingVertical: 14,
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ color: COLORS.white, fontWeight: "700" }}>
-              Go Back
-            </Text>
-          </Pressable>
-        </View>
+              <Text
+                style={{
+                  textAlign: "center",
+                  fontSize: 14,
+                  color: COLORS.textSecondary,
+                  lineHeight: 22,
+                  marginBottom: 18,
+                }}
+              >
+                We couldn’t load this product right now.
+              </Text>
+
+              <Pressable
+                onPress={() => router.back()}
+                style={{
+                  backgroundColor: COLORS.primary,
+                  paddingHorizontal: 18,
+                  paddingVertical: 13,
+                  borderRadius: 16,
+                }}
+              >
+                <Text
+                  style={{
+                    color: COLORS.white,
+                    fontWeight: "700",
+                  }}
+                >
+                  Go Back
+                </Text>
+              </Pressable>
+            </AnimatedCard>
+          </View>
+        </AnimatedScreen>
       </SafeAreaView>
     );
   }
 
-  const isInStock = product.stock > 0;
-  const images = product.product_images ?? [];
-
-  const decreaseQty = () => {
-    setQuantity((prev) => Math.max(1, prev - 1));
-    setStockWarning("");
-  };
-
-  const increaseQty = () => {
-    if (quantity >= product.stock) {
-      setStockWarning(
-        `Your selected quantity exceeds available stock. Only ${product.stock} item${product.stock === 1 ? "" : "s"} left.`
-      );
-      return;
-    }
-
-    setQuantity((prev) => prev + 1);
-    setStockWarning("");
-  };
-
-  const handleAddToCart = () => {
-    if (!isInStock) return;
-
-    if (quantity > product.stock) {
-      setStockWarning(
-        `Your selected quantity exceeds available stock. Only ${product.stock} item${product.stock === 1 ? "" : "s"} left.`
-      );
-      return;
-    }
-
-    addToCart(productToCartItem(product), quantity);
-    router.push("/cart" as Href);
-  };
+  const imageUrl = product.product_images?.[0]?.image_url ?? null;
+  const inStock = Number(product.stock) > 0;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-      <StatusBar barStyle="light-content" />
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <View
-          style={{
-            backgroundColor: COLORS.primary,
-            paddingTop: 12,
-            paddingHorizontal: 16,
-            paddingBottom: 18,
+      <AnimatedScreen>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingBottom: 36,
           }}
         >
-          <Pressable
-            onPress={() => router.back()}
+          <MotiView
+            from={{ opacity: 0, scale: 1.04 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: "timing", duration: 450 }}
             style={{
-              width: 42,
-              height: 42,
-              borderRadius: 14,
-              backgroundColor: "rgba(255,255,255,0.14)",
-              alignItems: "center",
-              justifyContent: "center",
-              marginBottom: 14,
+              height: 340,
+              backgroundColor: COLORS.accent,
+              position: "relative",
             }}
           >
-            <Text
-              style={{
-                color: COLORS.white,
-                fontSize: 22,
-                fontWeight: "600",
-              }}
-            >
-              ‹
-            </Text>
-          </Pressable>
-
-          {selectedImage ? (
-            <Image
-              source={{ uri: selectedImage }}
-              style={{
-                width: "100%",
-                height: 300,
-                borderRadius: 28,
-              }}
-              resizeMode="cover"
-            />
-          ) : (
-            <View
-              style={{
-                width: "100%",
-                height: 300,
-                borderRadius: 28,
-                backgroundColor: "rgba(255,255,255,0.12)",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text style={{ color: COLORS.white }}>No image</Text>
-            </View>
-          )}
-        </View>
-
-        <View
-          style={{
-            marginTop: -18,
-            backgroundColor: COLORS.surface,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            paddingHorizontal: 16,
-            paddingTop: 20,
-            paddingBottom: 30,
-            minHeight: 450,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 30,
-              fontWeight: "700",
-              color: COLORS.primaryDark,
-              marginBottom: 6,
-            }}
-          >
-            {product.name}
-          </Text>
-
-          <Text
-            style={{
-              fontSize: 14,
-              color: COLORS.textSecondary,
-              marginBottom: 10,
-            }}
-          >
-            {product.category}
-          </Text>
-
-          <Text
-            style={{
-              fontSize: 28,
-              fontWeight: "700",
-              color: COLORS.primaryDark,
-              marginBottom: 16,
-            }}
-          >
-            ₦{Number(product.price).toLocaleString()}
-          </Text>
-
-          <View
-            style={{
-              alignSelf: "flex-start",
-              marginBottom: 18,
-              backgroundColor: isInStock ? "#E8F5E9" : "#EFE7DF",
-              paddingHorizontal: 12,
-              paddingVertical: 7,
-              borderRadius: 999,
-            }}
-          >
-            <Text
-              style={{
-                color: isInStock ? "#2E7D32" : COLORS.textSecondary,
-                fontSize: 12,
-                fontWeight: "700",
-              }}
-            >
-              {isInStock ? `In Stock (${product.stock})` : "Out of Stock"}
-            </Text>
-          </View>
-
-          {images.length > 0 ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 18 }}
-            >
-              {images.map((image, index) => {
-                const active = index === selectedImageIndex;
-
-                return (
-                  <Pressable
-                    key={image.id}
-                    onPress={() => setSelectedImageIndex(index)}
-                    style={{
-                      marginRight: 10,
-                      borderRadius: 16,
-                      padding: active ? 2 : 0,
-                      backgroundColor: active ? COLORS.primary : "transparent",
-                    }}
-                  >
-                    <Image
-                      source={{ uri: image.image_url }}
-                      style={{
-                        width: 88,
-                        height: 72,
-                        borderRadius: 14,
-                      }}
-                      resizeMode="cover"
-                    />
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          ) : null}
-
-          <View
-            style={{
-              backgroundColor: COLORS.card,
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              padding: 16,
-              marginBottom: 16,
-            }}
-          >
-            <Text
-              style={{
-                fontSize: 17,
-                fontWeight: "700",
-                color: COLORS.primaryDark,
-                marginBottom: 8,
-              }}
-            >
-              Description
-            </Text>
-
-            <Text
-              style={{
-                fontSize: 15,
-                lineHeight: 24,
-                color: COLORS.textPrimary,
-              }}
-            >
-              {product.description?.trim()
-                ? product.description
-                : "No description added yet."}
-            </Text>
-          </View>
-
-          <View
-            style={{
-              backgroundColor: COLORS.card,
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              padding: 16,
-              marginBottom: 20,
-            }}
-          >
-            <Text
-              style={{
-                fontSize: 17,
-                fontWeight: "700",
-                color: COLORS.primaryDark,
-                marginBottom: 8,
-              }}
-            >
-              Dimensions
-            </Text>
-
-            <Text
-              style={{
-                fontSize: 15,
-                lineHeight: 24,
-                color: COLORS.textPrimary,
-              }}
-            >
-              {product.dimensions?.trim()
-                ? product.dimensions
-                : "No dimensions provided."}
-            </Text>
-          </View>
-
-          {!!stockWarning && (
-            <View
-              style={{
-                backgroundColor: "#FEE2E2",
-                borderWidth: 1,
-                borderColor: "#FCA5A5",
-                borderRadius: 16,
-                padding: 14,
-                marginBottom: 16,
-              }}
-            >
-              <Text
+            {imageUrl ? (
+              <Image
+                source={{ uri: imageUrl }}
+                resizeMode="cover"
                 style={{
-                  color: "#991B1B",
-                  fontSize: 15,
-                  fontWeight: "800",
-                  textAlign: "center",
+                  width: "100%",
+                  height: "100%",
+                }}
+              />
+            ) : (
+              <View
+                style={{
+                  flex: 1,
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
               >
-                {stockWarning}
-              </Text>
-            </View>
-          )}
+                <Ionicons
+                  name="image-outline"
+                  size={54}
+                  color={COLORS.textSecondary}
+                />
+              </View>
+            )}
 
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 12,
-            }}
-          >
             <View
               style={{
+                position: "absolute",
+                top: 16,
+                left: 16,
+                right: 16,
                 flexDirection: "row",
                 alignItems: "center",
-                backgroundColor: COLORS.card,
-                borderRadius: 18,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                paddingHorizontal: 8,
-                height: 56,
+                justifyContent: "space-between",
               }}
             >
               <Pressable
-                onPress={decreaseQty}
+                onPress={() => router.back()}
                 style={{
                   width: 42,
                   height: 42,
                   borderRadius: 14,
+                  backgroundColor: "rgba(255,255,255,0.92)",
                   alignItems: "center",
                   justifyContent: "center",
+                }}
+              >
+                <Ionicons
+                  name="chevron-back"
+                  size={20}
+                  color={COLORS.textPrimary}
+                />
+              </Pressable>
+
+              <MotiView
+                from={{ opacity: 0.7, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ type: "timing", duration: 300, delay: 180 }}
+                style={{
+                  backgroundColor: inStock ? "#DCFCE7" : "#FEE2E2",
+                  borderRadius: 999,
+                  paddingHorizontal: 12,
+                  paddingVertical: 7,
                 }}
               >
                 <Text
                   style={{
-                    fontSize: 26,
-                    color: COLORS.primaryDark,
-                    fontWeight: "500",
+                    color: inStock ? "#166534" : "#B91C1C",
+                    fontWeight: "700",
+                    fontSize: 12,
                   }}
                 >
-                  −
+                  {inStock ? "In Stock" : "Out of Stock"}
                 </Text>
-              </Pressable>
+              </MotiView>
+            </View>
+          </MotiView>
+
+          <View style={{ padding: 16 }}>
+            <AnimatedCard
+              delay={80}
+              style={{
+                backgroundColor: COLORS.surface,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                padding: 20,
+                marginTop: -36,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: COLORS.textSecondary,
+                  marginBottom: 8,
+                }}
+              >
+                {product.category || "Uncategorized"}
+              </Text>
 
               <Text
                 style={{
-                  minWidth: 36,
-                  textAlign: "center",
-                  fontSize: 18,
+                  fontSize: 28,
                   fontWeight: "700",
-                  color: COLORS.primaryDark,
+                  color: COLORS.textPrimary,
+                  marginBottom: 10,
                 }}
               >
-                {quantity}
+                {product.name}
               </Text>
 
-              <Pressable
-                onPress={increaseQty}
-                style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 14,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
+              <MotiView
+                from={{ opacity: 0.7, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ type: "timing", duration: 280, delay: 180 }}
               >
                 <Text
                   style={{
                     fontSize: 24,
+                    fontWeight: "800",
                     color: COLORS.primaryDark,
-                    fontWeight: "500",
+                    marginBottom: 14,
                   }}
                 >
-                  +
+                  ₦{Number(product.price).toLocaleString()}
                 </Text>
-              </Pressable>
-            </View>
+              </MotiView>
 
-            <Pressable
-              onPress={handleAddToCart}
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: COLORS.textSecondary,
+                  lineHeight: 23,
+                }}
+              >
+                {product.description || "No description available for this product yet."}
+              </Text>
+            </AnimatedCard>
+
+            <AnimatedCard
+              delay={150}
               style={{
-                flex: 1,
-                backgroundColor: COLORS.primary,
-                borderRadius: 18,
-                paddingVertical: 17,
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: isInStock ? 1 : 0.5,
-                shadowColor: "#000",
-                shadowOpacity: 0.08,
-                shadowRadius: 16,
-                shadowOffset: { width: 0, height: 8 },
-                elevation: 4,
+                backgroundColor: COLORS.surface,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                padding: 20,
+                marginTop: 16,
               }}
-              disabled={!isInStock}
             >
               <Text
                 style={{
-                  color: COLORS.white,
                   fontSize: 16,
                   fontWeight: "700",
+                  color: COLORS.textPrimary,
+                  marginBottom: 12,
                 }}
               >
-                Add to Cart
+                Product Details
               </Text>
-            </Pressable>
+
+              <InfoRow label="Stock" value={String(product.stock ?? 0)} />
+              <InfoRow
+                label="Dimensions"
+                value={product.dimensions || "Not specified"}
+              />
+            </AnimatedCard>
+
+            <MotiView
+              from={{ opacity: 0, translateY: 20, scale: 0.98 }}
+              animate={{ opacity: 1, translateY: 0, scale: 1 }}
+              transition={{ type: "timing", duration: 380, delay: 220 }}
+              style={{ marginTop: 18 }}
+            >
+              <Pressable
+                disabled={!inStock}
+                onPress={() =>
+                  addItem({
+                    productId: product.id,
+                    name: product.name,
+                    price: Number(product.price),
+                    quantity: 1,
+                    image: imageUrl,
+                  })
+                }
+                style={{
+                  backgroundColor: inStock ? COLORS.primary : COLORS.border,
+                  borderRadius: 16,
+                  paddingVertical: 17,
+                  alignItems: "center",
+                }}
+              >
+                <Text
+                  style={{
+                    color: inStock ? COLORS.white : COLORS.textSecondary,
+                    fontSize: 16,
+                    fontWeight: "700",
+                  }}
+                >
+                  {inStock ? "Add to Cart" : "Out of Stock"}
+                </Text>
+              </Pressable>
+            </MotiView>
           </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </AnimatedScreen>
     </SafeAreaView>
+  );
+}
+
+function InfoRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-between",
+        marginBottom: 12,
+      }}
+    >
+      <Text
+        style={{
+          fontSize: 14,
+          color: COLORS.textSecondary,
+        }}
+      >
+        {label}
+      </Text>
+
+      <Text
+        style={{
+          fontSize: 14,
+          fontWeight: "700",
+          color: COLORS.textPrimary,
+          maxWidth: "58%",
+          textAlign: "right",
+        }}
+      >
+        {value}
+      </Text>
+    </View>
   );
 }

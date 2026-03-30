@@ -1,196 +1,121 @@
 import { Tabs } from "expo-router";
+import { Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  Animated,
-  Pressable,
-  Text,
-  View,
-  type LayoutChangeEvent,
-} from "react-native";
-import { useEffect, useRef, useState } from "react";
+import { MotiView } from "moti";
+import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import { COLORS } from "../../src/constants/colors";
 
-type TabMeta = {
-  route: string;
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-};
-
-const TABS: TabMeta[] = [
-  { route: "index", label: "Home", icon: "home" },
-  { route: "orders-tab", label: "Orders", icon: "cube" },
-  { route: "cart-tab", label: "Cart", icon: "cart" },
-  { route: "profile-tab", label: "Profile", icon: "person" },
-];
-
-function TabBarContent({
-  focused,
-  icon,
-  label,
-}: {
-  focused: boolean;
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-}) {
-  const scaleAnim = useRef(new Animated.Value(focused ? 1 : 0.96)).current;
-
-  useEffect(() => {
-    Animated.spring(scaleAnim, {
-      toValue: focused ? 1 : 0.96,
-      useNativeDriver: true,
-      friction: 7,
-      tension: 120,
-    }).start();
-  }, [focused, scaleAnim]);
-
-  return (
-    <Animated.View
-      style={{
-        alignItems: "center",
-        justifyContent: "center",
-        width: 64,
-        height: 54,
-        paddingTop: 4,
-        transform: [{ scale: scaleAnim }],
-      }}
-    >
-      <View
-        style={{
-          width: 34,
-          height: 34,
-          borderRadius: 17,
-          alignItems: "center",
-          justifyContent: "center",
-          marginBottom: 2,
-        }}
-      >
-        <Ionicons
-          name={icon}
-          size={17}
-          color={focused ? "#081421" : "#B8C0CC"}
-        />
-      </View>
-
-      <Text
-        style={{
-          color: focused ? "#FFFFFF" : "#B8C0CC",
-          fontSize: 10,
-          fontWeight: focused ? "700" : "500",
-        }}
-      >
-        {label}
-      </Text>
-    </Animated.View>
-  );
-}
-
-function CustomTabBar({ state, navigation }: any) {
-  const translateX = useRef(new Animated.Value(0)).current;
-  const [barWidth, setBarWidth] = useState(0);
-
-  const horizontalInset = 10;
-  const pillWidth =
-    barWidth > 0 ? (barWidth - horizontalInset * 2) / TABS.length : 0;
-
-  useEffect(() => {
-    if (!pillWidth) return;
-
-    Animated.spring(translateX, {
-      toValue: horizontalInset + state.index * pillWidth,
-      useNativeDriver: true,
-      friction: 8,
-      tension: 95,
-    }).start();
-  }, [state.index, pillWidth, translateX]);
-
-  const onLayout = (event: LayoutChangeEvent) => {
-    setBarWidth(event.nativeEvent.layout.width);
-  };
-
+function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   return (
     <View
-      onLayout={onLayout}
       style={{
         position: "absolute",
-        left: 28,
-        right: 28,
+        left: 14,
+        right: 14,
         bottom: 18,
-        height: 70,
-        borderRadius: 999,
-        backgroundColor: "#081421",
+        backgroundColor: COLORS.surface,
+        borderRadius: 22,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingHorizontal: 10,
+        paddingVertical: 10,
         shadowColor: "#000",
-        shadowOpacity: 0.12,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 6 },
-        elevation: 10,
-        paddingHorizontal: horizontalInset,
-        paddingVertical: 8,
+        shadowOpacity: 0.08,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 8,
       }}
     >
-      {pillWidth > 0 && (
-        <Animated.View
-          style={{
-            position: "absolute",
-            top: 8,
-            left: 0,
-            width: pillWidth,
-            height: 38,
-            borderRadius: 999,
-            backgroundColor: "#FFFFFF",
-            transform: [{ translateX }],
-            shadowColor: "#000",
-            shadowOpacity: 0.1,
-            shadowRadius: 8,
-            shadowOffset: { width: 0, height: 3 },
-            elevation: 4,
-          }}
-        />
-      )}
+      {state.routes.map((route, index) => {
+        const { options } = descriptors[route.key];
+        const label =
+          typeof options.tabBarLabel === "string"
+            ? options.tabBarLabel
+            : options.title ?? route.name;
 
-      <View
-        style={{
-          flex: 1,
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        {state.routes.map((route: any, index: number) => {
-          const isFocused = state.index === index;
-          const meta = TABS.find((tab) => tab.route === route.name);
-          if (!meta) return null;
+        const isFocused = state.index === index;
 
-          const onPress = () => {
-            const event = navigation.emit({
-              type: "tabPress",
-              target: route.key,
-              canPreventDefault: true,
-            });
+        let iconName: keyof typeof Ionicons.glyphMap = "ellipse-outline";
 
-            if (!isFocused && !event.defaultPrevented) {
-              navigation.navigate(route.name);
-            }
-          };
+        if (route.name === "index") iconName = "home-outline";
+        if (route.name === "cart-tab") iconName = "cart-outline";
+        if (route.name === "orders-tab") iconName = "cube-outline";
+        if (route.name === "profile-tab") iconName = "person-outline";
 
-          return (
-            <Pressable
-              key={route.key}
-              onPress={onPress}
+        const onPress = () => {
+          const event = navigation.emit({
+            type: "tabPress",
+            target: route.key,
+            canPreventDefault: true,
+          });
+
+          if (!isFocused && !event.defaultPrevented) {
+            navigation.navigate(route.name);
+          }
+        };
+
+        return (
+          <Pressable
+            key={route.key}
+            onPress={onPress}
+            style={{
+              flex: 1,
+              alignItems: "center",
+            }}
+          >
+            <MotiView
+              animate={{
+                scale: isFocused ? 1.08 : 1,
+                translateY: isFocused ? -4 : 0,
+              }}
+              transition={{
+                type: "spring",
+                damping: 14,
+                stiffness: 180,
+              }}
               style={{
-                flex: 1,
                 alignItems: "center",
                 justifyContent: "center",
-                zIndex: 2,
+                paddingVertical: 8,
+                paddingHorizontal: 10,
+                borderRadius: 16,
+                backgroundColor: isFocused ? COLORS.accent : "transparent",
+                minWidth: 68,
               }}
             >
-              <TabBarContent
-                focused={isFocused}
-                icon={meta.icon}
-                label={meta.label}
-              />
-            </Pressable>
-          );
-        })}
-      </View>
+              <MotiView
+                animate={{
+                  rotate: isFocused ? "8deg" : "0deg",
+                }}
+                transition={{
+                  type: "timing",
+                  duration: 180,
+                }}
+              >
+                <Ionicons
+                  name={iconName}
+                  size={20}
+                  color={isFocused ? COLORS.primaryDark : COLORS.textSecondary}
+                />
+              </MotiView>
+
+              <Text
+                style={{
+                  marginTop: 4,
+                  fontSize: 11,
+                  fontWeight: isFocused ? "700" : "500",
+                  color: isFocused ? COLORS.primaryDark : COLORS.textSecondary,
+                }}
+              >
+                {String(label)}
+              </Text>
+            </MotiView>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -203,10 +128,33 @@ export default function TabLayout() {
         headerShown: false,
       }}
     >
-      <Tabs.Screen name="index" options={{ title: "Home" }} />
-      <Tabs.Screen name="orders-tab" options={{ title: "Orders" }} />
-      <Tabs.Screen name="cart-tab" options={{ title: "Cart" }} />
-      <Tabs.Screen name="profile-tab" options={{ title: "Profile" }} />
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "Home",
+        }}
+      />
+
+      <Tabs.Screen
+        name="cart-tab"
+        options={{
+          title: "Cart",
+        }}
+      />
+
+      <Tabs.Screen
+        name="orders-tab"
+        options={{
+          title: "Orders",
+        }}
+      />
+
+      <Tabs.Screen
+        name="profile-tab"
+        options={{
+          title: "Profile",
+        }}
+      />
     </Tabs>
   );
 }

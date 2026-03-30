@@ -1,0 +1,28 @@
+{
+  "name": "@furniture/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    "./dto/order/create-order.dto": {
+      "types": "./src/dto/order/create-order.dto.ts",
+      "default": "./src/dto/order/create-order.dto.ts"
+    },
+    "./dto/order/update-order-status.dto": {
+      "types": "./src/dto/order/update-order-status.dto.ts",
+      "default": "./src/dto/order/update-order-status.dto.ts"
+    },
+    "./dto/product/create-product.dto": {
+      "types": "./src/dto/product/create-product.dto.ts",
+      "default": "./src/dto/product/create-product.dto.ts"
+    },
+    "./dto/product/update-product.dto": {
+      "types": "./src/dto/product/update-product.dto.ts",
+      "default": "./src/dto/product/update-product.dto.ts"
+    }
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  }
+}

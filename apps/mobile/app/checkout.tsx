@@ -1,46 +1,75 @@
 import { useEffect, useMemo, useState } from "react";
-import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { MotiView } from "moti";
 import { useUser } from "@clerk/clerk-expo";
-import { useCart } from "../src/context/CartContext";
-import { fetchAppSettings } from "../src/lib/products";
 import { supabase } from "../src/lib/supabase";
+import { useCart } from "../src/context/CartContext";
+import type { CartItem } from "../src/types/cart";
 import { COLORS } from "../src/constants/colors";
+import { sendInAppNotification } from "../src/lib/in-app-notifications";
+import { fetchAppSettings } from "../src/lib/products";
+import AnimatedScreen from "../src/components/AnimatedScreen";
+import AnimatedCard from "../src/components/AnimatedCard";
+import {
+  createOrderDtoSchema,
+  type CreateOrderDto,
+} from "@furniture/shared/dto/order/create-order.dto";
 
 type DeliveryMethod = "delivery" | "pickup";
 
+type ProfileRow = {
+  full_name: string | null;
+  phone: string | null;
+  delivery_address: string | null;
+};
+
 export default function CheckoutScreen() {
   const router = useRouter();
-  const { user, isSignedIn, isLoaded } = useUser();
-  const { items, subtotal, clearCart } = useCart();
+  const { user, isLoaded, isSignedIn } = useUser();
+  const { items, clearCart } = useCart();
 
-  const [loadingSettings, setLoadingSettings] = useState(true);
+  const cartItems: CartItem[] = items ?? [];
+
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [loadingSettings, setLoadingSettings] = useState(true);
   const [placingOrder, setPlacingOrder] = useState(false);
-
-  const [deliveryFee, setDeliveryFee] = useState(0);
-  const [pickupEnabled, setPickupEnabled] = useState(true);
-
-  const [deliveryMethod, setDeliveryMethod] =
-    useState<DeliveryMethod>("delivery");
 
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+
+  const [deliveryMethod, setDeliveryMethod] =
+    useState<DeliveryMethod>("delivery");
+  const [deliveryFee, setDeliveryFee] = useState(0);
+  const [pickupEnabled, setPickupEnabled] = useState(true);
+
+  const subtotal = useMemo(() => {
+    return cartItems.reduce<number>((sum: number, item: CartItem) => {
+      return sum + Number(item.price) * Number(item.quantity);
+    }, 0);
+  }, [cartItems]);
+
+  const finalDeliveryFee = useMemo(() => {
+    return deliveryMethod === "delivery" ? deliveryFee : 0;
+  }, [deliveryMethod, deliveryFee]);
+
+  const total = useMemo(() => {
+    return subtotal + finalDeliveryFee;
+  }, [subtotal, finalDeliveryFee]);
 
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        setLoadingSettings(true);
         const settings = await fetchAppSettings();
 
         if (settings) {
@@ -52,7 +81,7 @@ export default function CheckoutScreen() {
           }
         }
       } catch (error) {
-        console.error("Failed to load app settings:", error);
+        console.log("Failed to load app settings:", error);
       } finally {
         setLoadingSettings(false);
       }
@@ -71,8 +100,6 @@ export default function CheckoutScreen() {
       }
 
       try {
-        setLoadingProfile(true);
-
         const { data, error } = await supabase
           .from("profiles")
           .select("full_name, phone, delivery_address")
@@ -83,16 +110,18 @@ export default function CheckoutScreen() {
           throw new Error(error.message);
         }
 
+        const profile = (data as ProfileRow | null) ?? null;
+
         const fallbackName =
           [user.firstName, user.lastName].filter(Boolean).join(" ") ||
           user.username ||
           "";
 
-        setCustomerName(data?.full_name ?? fallbackName);
-        setPhone(data?.phone ?? "");
-        setAddress(data?.delivery_address ?? "");
+        setCustomerName(profile?.full_name ?? fallbackName);
+        setPhone(profile?.phone ?? "");
+        setAddress(profile?.delivery_address ?? "");
       } catch (error) {
-        console.error("Failed to load profile:", error);
+        console.log("Failed to load profile:", error);
 
         const fallbackName =
           [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
@@ -108,163 +137,119 @@ export default function CheckoutScreen() {
     loadProfile();
   }, [isLoaded, isSignedIn, user]);
 
-  const finalDeliveryFee = useMemo(() => {
-    return deliveryMethod === "delivery" ? deliveryFee : 0;
-  }, [deliveryMethod, deliveryFee]);
+  const buildOrderDto = (): CreateOrderDto => {
+    return {
+      customerName: customerName.trim(),
+      phone: phone.trim(),
+      address: deliveryMethod === "delivery" ? address.trim() : null,
+      deliveryMethod,
+      items: cartItems.map((item) => ({
+        productId: item.productId,
+        quantity: Number(item.quantity),
+      })),
+    };
+  };
 
-  const total = useMemo(() => {
-    return subtotal + finalDeliveryFee;
-  }, [subtotal, finalDeliveryFee]);
-
-  const placeOrder = async () => {
+  const handlePlaceOrder = async () => {
     try {
-      setErrorMessage("");
-
-      if (!isLoaded) {
-        setErrorMessage("Please wait while your account loads.");
-        return;
-      }
-
-      if (!isSignedIn || !user) {
-        setErrorMessage("Please sign in before placing an order.");
-        return;
-      }
-
-      if (items.length === 0) {
-        setErrorMessage("Your cart is empty. Add products before checkout.");
-        return;
-      }
-
-      if (!customerName.trim()) {
-        setErrorMessage("Please enter your full name.");
-        return;
-      }
-
-      if (!phone.trim()) {
-        setErrorMessage("Please enter your phone number.");
-        return;
-      }
-
-      if (deliveryMethod === "delivery" && !address.trim()) {
-        setErrorMessage("Please enter your delivery address.");
-        return;
-      }
-
       setPlacingOrder(true);
 
-      for (const item of items) {
-        const { data: product, error: productError } = await supabase
-          .from("products")
-          .select("id, name, stock, is_available")
-          .eq("id", item.productId)
-          .single();
-
-        if (productError || !product) {
-          throw new Error(
-            productError?.message || `Unable to validate stock for ${item.name}.`
-          );
-        }
-
-        if (!product.is_available) {
-          throw new Error(`${product.name} is currently unavailable.`);
-        }
-
-        if (Number(product.stock) <= 0) {
-          throw new Error(`${product.name} is out of stock.`);
-        }
-
-        if (item.quantity > Number(product.stock)) {
-          throw new Error(
-            `${product.name} quantity exceeds available stock. Only ${product.stock} left.`
-          );
-        }
+      if (!isLoaded || !user || !isSignedIn) {
+        Alert.alert("Error", "You must be signed in.");
+        return;
       }
 
-      const { data: insertedOrder, error: orderError } = await supabase
+      const dtoCandidate = buildOrderDto();
+      const parsed = createOrderDtoSchema.safeParse(dtoCandidate);
+
+      if (!parsed.success) {
+        const firstIssue =
+          parsed.error.issues[0]?.message || "Invalid checkout data.";
+        Alert.alert("Validation Error", firstIssue);
+        return;
+      }
+
+      const dto = parsed.data;
+
+      if (cartItems.length === 0) {
+        Alert.alert("Cart empty", "Add items before checkout.");
+        return;
+      }
+
+      const { data: order, error: orderError } = await supabase
         .from("orders")
         .insert({
-          customer_id: null,
           clerk_user_id: user.id,
-          customer_name: customerName.trim(),
+          customer_name: dto.customerName,
           subtotal,
-          delivery_method: deliveryMethod,
           delivery_fee: finalDeliveryFee,
           total,
           status: "pending",
-          address: deliveryMethod === "delivery" ? address.trim() : null,
-          phone: phone.trim(),
+          delivery_method: dto.deliveryMethod,
+          phone: dto.phone,
+          address: dto.deliveryMethod === "delivery" ? dto.address : null,
         })
         .select("id")
         .single();
 
-      if (orderError || !insertedOrder) {
+      if (orderError || !order) {
         throw new Error(orderError?.message || "Failed to create order.");
       }
 
-      const orderItemsPayload = items.map((item) => ({
-        order_id: insertedOrder.id,
-        product_id: item.productId,
-        quantity: item.quantity,
-        unit_price: item.price,
-        line_total: item.price * item.quantity,
-      }));
+      for (const item of dto.items) {
+        const cartItem = cartItems.find((cart) => cart.productId === item.productId);
 
-      const { error: orderItemsError } = await supabase
-        .from("order_items")
-        .insert(orderItemsPayload);
+        if (!cartItem) {
+          throw new Error("Cart item not found during order creation.");
+        }
 
-      if (orderItemsError) {
-        throw new Error(orderItemsError.message);
+        const { error: itemError } = await supabase.from("order_items").insert({
+          order_id: order.id,
+          product_id: item.productId,
+          quantity: item.quantity,
+          unit_price: cartItem.price,
+          line_total: Number(cartItem.price) * Number(item.quantity),
+        });
+
+        if (itemError) {
+          throw new Error(itemError.message);
+        }
       }
 
-      for (const item of items) {
-        const { data: product, error: productError } = await supabase
-          .from("products")
-          .select("id, name, stock")
-          .eq("id", item.productId)
-          .single();
-
-        if (productError || !product) {
-          throw new Error(
-            productError?.message || `Failed to fetch stock for ${item.name}.`
-          );
-        }
-
-        const newStock = Number(product.stock) - Number(item.quantity);
-
-        if (newStock < 0) {
-          throw new Error(`Insufficient stock for ${product.name}.`);
-        }
-
-        const { error: updateError } = await supabase
-          .from("products")
-          .update({
-            stock: newStock,
+      try {
+        await supabase.from("profiles").upsert(
+          {
+            clerk_user_id: user.id,
+            email: user.primaryEmailAddress?.emailAddress ?? null,
+            full_name: dto.customerName,
+            phone: dto.phone,
+            delivery_address:
+              dto.deliveryMethod === "delivery" ? dto.address : address || null,
             updated_at: new Date().toISOString(),
-          })
-          .eq("id", item.productId);
-
-        if (updateError) {
-          throw new Error(updateError.message);
-        }
+          },
+          { onConflict: "clerk_user_id" }
+        );
+      } catch (error) {
+        console.log("Profile save skipped:", error);
       }
+
+      sendInAppNotification({
+        title: "Order Placed 🎉",
+        body: "Your order has been placed successfully.",
+      });
 
       clearCart();
-
-      router.replace({
-        pathname: "/checkout-success",
-        params: { orderId: insertedOrder.id },
-      } as any);
-    } catch (error) {
+      router.replace("/checkout-success" as any);
+    } catch (err) {
       const message =
-        error instanceof Error ? error.message : "Failed to place order.";
-      setErrorMessage(message);
+        err instanceof Error ? err.message : "Something went wrong";
+      Alert.alert("Error", message);
     } finally {
       setPlacingOrder(false);
     }
   };
 
-  if (loadingSettings || !isLoaded || loadingProfile) {
+  if (!isLoaded || loadingProfile || loadingSettings) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
         <View
@@ -275,7 +260,14 @@ export default function CheckoutScreen() {
           }}
         >
           <ActivityIndicator size="large" color={COLORS.primaryDark} />
-          <Text style={{ marginTop: 12, color: COLORS.textSecondary }}>
+          <Text
+            style={{
+              marginTop: 12,
+              color: COLORS.textSecondary,
+              fontSize: 16,
+              fontWeight: "600",
+            }}
+          >
             Loading checkout...
           </Text>
         </View>
@@ -283,220 +275,145 @@ export default function CheckoutScreen() {
     );
   }
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
-      >
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 18,
-          }}
-        >
-          <Pressable
-            onPress={() => router.back()}
+  if (!isSignedIn || !user) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+        <AnimatedScreen>
+          <View
             style={{
-              width: 42,
-              height: 42,
-              borderRadius: 14,
-              backgroundColor: COLORS.surface,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              alignItems: "center",
+              flex: 1,
+              padding: 20,
               justifyContent: "center",
             }}
           >
-            <Text style={{ fontSize: 20, color: COLORS.textPrimary }}>‹</Text>
-          </Pressable>
+            <AnimatedCard
+              style={{
+                backgroundColor: COLORS.surface,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                padding: 22,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 26,
+                  fontWeight: "700",
+                  color: COLORS.textPrimary,
+                  marginBottom: 8,
+                }}
+              >
+                Sign in required
+              </Text>
 
-          <Text
-            style={{
-              fontSize: 20,
-              fontWeight: "700",
-              color: COLORS.textPrimary,
-            }}
-          >
-            Checkout
-          </Text>
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: COLORS.textSecondary,
+                  lineHeight: 22,
+                  marginBottom: 18,
+                }}
+              >
+                You need to sign in before placing an order.
+              </Text>
 
-          <View style={{ width: 42 }} />
-        </View>
+              <Pressable
+                onPress={() => router.push("/sign-in" as any)}
+                style={{
+                  backgroundColor: COLORS.primary,
+                  borderRadius: 16,
+                  paddingVertical: 15,
+                  alignItems: "center",
+                }}
+              >
+                <Text
+                  style={{
+                    color: COLORS.white,
+                    fontWeight: "700",
+                    fontSize: 16,
+                  }}
+                >
+                  Sign In
+                </Text>
+              </Pressable>
+            </AnimatedCard>
+          </View>
+        </AnimatedScreen>
+      </SafeAreaView>
+    );
+  }
 
-        <Text
-          style={{
-            fontSize: 28,
-            fontWeight: "700",
-            color: COLORS.textPrimary,
-            marginBottom: 6,
-          }}
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <AnimatedScreen>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         >
-          Complete Your Order
-        </Text>
-
-        <Text
-          style={{
-            fontSize: 14,
-            color: COLORS.textSecondary,
-            marginBottom: 20,
-          }}
-        >
-          Your saved delivery details have been filled in automatically
-        </Text>
-
-        {!isSignedIn ? (
-          <View
-            style={{
-              backgroundColor: COLORS.surface,
-              borderRadius: 20,
-              padding: 20,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              marginBottom: 18,
-            }}
+          <MotiView
+            from={{ opacity: 0, translateY: -8 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: "timing", duration: 350 }}
           >
             <Text
               style={{
-                fontSize: 18,
+                fontSize: 28,
                 fontWeight: "700",
                 color: COLORS.textPrimary,
                 marginBottom: 8,
               }}
             >
-              Sign in required
+              Checkout
             </Text>
 
             <Text
               style={{
                 fontSize: 14,
                 color: COLORS.textSecondary,
-                lineHeight: 22,
-                marginBottom: 16,
+                marginBottom: 18,
               }}
             >
-              You need to sign in before placing an order.
+              Confirm your details and place your order.
             </Text>
+          </MotiView>
 
-            <Pressable
-              onPress={() => router.push("/sign-in" as any)}
-              style={{
-                backgroundColor: COLORS.primary,
-                paddingVertical: 14,
-                borderRadius: 14,
-                alignItems: "center",
-              }}
-            >
-              <Text
-                style={{
-                  color: COLORS.white,
-                  fontWeight: "700",
-                  fontSize: 15,
-                }}
-              >
-                Sign In
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {!!errorMessage && (
-          <View
+          <AnimatedCard
+            delay={100}
             style={{
-              backgroundColor: "#FEE2E2",
+              backgroundColor: COLORS.surface,
+              borderRadius: 22,
               borderWidth: 1,
-              borderColor: "#FCA5A5",
-              borderRadius: 16,
-              padding: 14,
+              borderColor: COLORS.border,
+              padding: 18,
               marginBottom: 16,
             }}
           >
             <Text
               style={{
-                color: "#991B1B",
-                fontSize: 15,
-                fontWeight: "800",
-                textAlign: "center",
+                fontSize: 16,
+                fontWeight: "700",
+                color: COLORS.textPrimary,
+                marginBottom: 12,
               }}
             >
-              {errorMessage}
+              Delivery Method
             </Text>
-          </View>
-        )}
 
-        <View
-          style={{
-            backgroundColor: COLORS.surface,
-            borderRadius: 20,
-            padding: 16,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            marginBottom: 16,
-            opacity: isSignedIn ? 1 : 0.6,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 16,
-              fontWeight: "700",
-              color: COLORS.textPrimary,
-              marginBottom: 12,
-            }}
-          >
-            Delivery Method
-          </Text>
-
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <Pressable
-              onPress={() => setDeliveryMethod("delivery")}
-              disabled={!isSignedIn}
-              style={{
-                flex: 1,
-                paddingVertical: 14,
-                borderRadius: 14,
-                backgroundColor:
-                  deliveryMethod === "delivery"
-                    ? COLORS.primary
-                    : COLORS.accent,
-                alignItems: "center",
-                borderWidth: 1,
-                borderColor:
-                  deliveryMethod === "delivery"
-                    ? COLORS.primary
-                    : COLORS.border,
-              }}
-            >
-              <Text
-                style={{
-                  color:
-                    deliveryMethod === "delivery"
-                      ? COLORS.white
-                      : COLORS.textPrimary,
-                  fontWeight: "700",
-                }}
-              >
-                Delivery
-              </Text>
-            </Pressable>
-
-            {pickupEnabled ? (
+            <View style={{ flexDirection: "row", gap: 10 }}>
               <Pressable
-                onPress={() => setDeliveryMethod("pickup")}
-                disabled={!isSignedIn}
+                onPress={() => setDeliveryMethod("delivery")}
                 style={{
                   flex: 1,
                   paddingVertical: 14,
                   borderRadius: 14,
                   backgroundColor:
-                    deliveryMethod === "pickup"
+                    deliveryMethod === "delivery"
                       ? COLORS.primary
                       : COLORS.accent,
                   alignItems: "center",
                   borderWidth: 1,
                   borderColor:
-                    deliveryMethod === "pickup"
+                    deliveryMethod === "delivery"
                       ? COLORS.primary
                       : COLORS.border,
                 }}
@@ -504,36 +421,60 @@ export default function CheckoutScreen() {
                 <Text
                   style={{
                     color:
-                      deliveryMethod === "pickup"
+                      deliveryMethod === "delivery"
                         ? COLORS.white
                         : COLORS.textPrimary,
                     fontWeight: "700",
                   }}
                 >
-                  Pickup
+                  Delivery
                 </Text>
               </Pressable>
-            ) : null}
-          </View>
-        </View>
 
-        <View
-          style={{
-            backgroundColor: COLORS.surface,
-            borderRadius: 20,
-            padding: 16,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            marginBottom: 16,
-            opacity: isSignedIn ? 1 : 0.6,
-          }}
-        >
-          <View
+              {pickupEnabled ? (
+                <Pressable
+                  onPress={() => setDeliveryMethod("pickup")}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 14,
+                    borderRadius: 14,
+                    backgroundColor:
+                      deliveryMethod === "pickup"
+                        ? COLORS.primary
+                        : COLORS.accent,
+                    alignItems: "center",
+                    borderWidth: 1,
+                    borderColor:
+                      deliveryMethod === "pickup"
+                        ? COLORS.primary
+                        : COLORS.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color:
+                        deliveryMethod === "pickup"
+                          ? COLORS.white
+                          : COLORS.textPrimary,
+                      fontWeight: "700",
+                    }}
+                  >
+                    Pickup
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </AnimatedCard>
+
+          <AnimatedCard
+            delay={160}
             style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 12,
+              backgroundColor: COLORS.surface,
+              borderRadius: 22,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              padding: 18,
+              marginBottom: 16,
             }}
           >
             <Text
@@ -541,203 +482,182 @@ export default function CheckoutScreen() {
                 fontSize: 16,
                 fontWeight: "700",
                 color: COLORS.textPrimary,
+                marginBottom: 12,
               }}
             >
               Contact Details
             </Text>
 
-            <Pressable onPress={() => router.push("/delivery-address" as any)}>
-              <Text
-                style={{
-                  fontSize: 13,
-                  fontWeight: "700",
-                  color: COLORS.primary,
-                }}
-              >
-                Edit saved address
-              </Text>
-            </Pressable>
-          </View>
-
-          <TextInput
-            value={customerName}
-            onChangeText={setCustomerName}
-            editable={!!isSignedIn}
-            placeholder="Full name"
-            placeholderTextColor={COLORS.textSecondary}
-            style={{
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              borderRadius: 14,
-              paddingHorizontal: 14,
-              paddingVertical: 14,
-              marginBottom: 12,
-              backgroundColor: COLORS.background,
-              color: COLORS.textPrimary,
-            }}
-          />
-
-          <TextInput
-            value={phone}
-            onChangeText={setPhone}
-            editable={!!isSignedIn}
-            placeholder="Phone number"
-            placeholderTextColor={COLORS.textSecondary}
-            keyboardType="phone-pad"
-            style={{
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              borderRadius: 14,
-              paddingHorizontal: 14,
-              paddingVertical: 14,
-              marginBottom: deliveryMethod === "delivery" ? 12 : 0,
-              backgroundColor: COLORS.background,
-              color: COLORS.textPrimary,
-            }}
-          />
-
-          {deliveryMethod === "delivery" ? (
             <TextInput
-              value={address}
-              onChangeText={setAddress}
-              editable={!!isSignedIn}
-              placeholder="Delivery address"
+              value={customerName}
+              onChangeText={setCustomerName}
+              placeholder="Full name"
               placeholderTextColor={COLORS.textSecondary}
-              multiline
               style={{
                 borderWidth: 1,
                 borderColor: COLORS.border,
                 borderRadius: 14,
                 paddingHorizontal: 14,
                 paddingVertical: 14,
-                minHeight: 100,
+                marginBottom: 12,
                 backgroundColor: COLORS.background,
                 color: COLORS.textPrimary,
-                textAlignVertical: "top",
               }}
             />
-          ) : null}
-        </View>
 
-        <View
-          style={{
-            backgroundColor: COLORS.surface,
-            borderRadius: 20,
-            padding: 16,
-            borderWidth: 1,
-            borderColor: COLORS.border,
-            marginBottom: 18,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 16,
-              fontWeight: "700",
-              color: COLORS.textPrimary,
-              marginBottom: 14,
-            }}
-          >
-            Order Summary
-          </Text>
-
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              marginBottom: 10,
-            }}
-          >
-            <Text style={{ color: COLORS.textSecondary }}>Subtotal</Text>
-            <Text
+            <TextInput
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="Phone number"
+              placeholderTextColor={COLORS.textSecondary}
+              keyboardType="phone-pad"
               style={{
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                borderRadius: 14,
+                paddingHorizontal: 14,
+                paddingVertical: 14,
+                marginBottom: deliveryMethod === "delivery" ? 12 : 0,
+                backgroundColor: COLORS.background,
                 color: COLORS.textPrimary,
-                fontWeight: "700",
               }}
-            >
-              ₦{subtotal.toLocaleString()}
-            </Text>
-          </View>
+            />
 
-          <View
+            {deliveryMethod === "delivery" ? (
+              <TextInput
+                value={address}
+                onChangeText={setAddress}
+                placeholder="Delivery address"
+                placeholderTextColor={COLORS.textSecondary}
+                multiline
+                style={{
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  borderRadius: 14,
+                  paddingHorizontal: 14,
+                  paddingVertical: 14,
+                  minHeight: 100,
+                  backgroundColor: COLORS.background,
+                  color: COLORS.textPrimary,
+                  textAlignVertical: "top",
+                }}
+              />
+            ) : null}
+          </AnimatedCard>
+
+          <AnimatedCard
+            delay={220}
             style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              marginBottom: 10,
+              backgroundColor: COLORS.surface,
+              borderRadius: 22,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              padding: 18,
+              marginBottom: 18,
             }}
           >
-            <Text style={{ color: COLORS.textSecondary }}>Delivery Fee</Text>
             <Text
               style={{
-                color: COLORS.textPrimary,
-                fontWeight: "700",
-              }}
-            >
-              ₦{finalDeliveryFee.toLocaleString()}
-            </Text>
-          </View>
-
-          <View
-            style={{
-              height: 1,
-              backgroundColor: COLORS.border,
-              marginVertical: 10,
-            }}
-          />
-
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-            }}
-          >
-            <Text
-              style={{
-                color: COLORS.textPrimary,
-                fontWeight: "700",
                 fontSize: 16,
+                fontWeight: "700",
+                color: COLORS.textPrimary,
+                marginBottom: 14,
               }}
             >
-              Total
+              Order Summary
             </Text>
-            <Text
-              style={{
-                color: COLORS.primaryDark,
-                fontWeight: "800",
-                fontSize: 20,
-              }}
-            >
-              ₦{total.toLocaleString()}
-            </Text>
-          </View>
-        </View>
 
-        <Pressable
-          onPress={placeOrder}
-          disabled={placingOrder || items.length === 0 || !isSignedIn}
-          style={{
-            backgroundColor:
-              placingOrder || items.length === 0 || !isSignedIn
-                ? COLORS.border
-                : COLORS.primary,
-            borderRadius: 16,
-            paddingVertical: 17,
-            alignItems: "center",
-          }}
-        >
-          <Text
-            style={{
-              color:
-                placingOrder || items.length === 0 || !isSignedIn
-                  ? COLORS.textSecondary
-                  : COLORS.white,
-              fontSize: 16,
-              fontWeight: "700",
-            }}
+            <Row label="Subtotal" value={`₦${subtotal.toLocaleString()}`} />
+            <Row
+              label="Delivery Fee"
+              value={`₦${finalDeliveryFee.toLocaleString()}`}
+            />
+            <View
+              style={{
+                height: 1,
+                backgroundColor: COLORS.border,
+                marginVertical: 10,
+              }}
+            />
+            <Row label="Total" value={`₦${total.toLocaleString()}`} bold />
+          </AnimatedCard>
+
+          <MotiView
+            from={{ opacity: 0, translateY: 18, scale: 0.98 }}
+            animate={{ opacity: 1, translateY: 0, scale: 1 }}
+            transition={{ type: "timing", duration: 380, delay: 280 }}
           >
-            {placingOrder ? "Placing Order..." : "Place Order"}
-          </Text>
-        </Pressable>
-      </ScrollView>
+            <Pressable
+              onPress={handlePlaceOrder}
+              disabled={placingOrder || cartItems.length === 0}
+              style={{
+                backgroundColor:
+                  placingOrder || cartItems.length === 0
+                    ? COLORS.border
+                    : "#000000",
+                borderRadius: 16,
+                paddingVertical: 17,
+                alignItems: "center",
+              }}
+            >
+              {placingOrder ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text
+                  style={{
+                    color:
+                      cartItems.length === 0 ? COLORS.textSecondary : "#FFFFFF",
+                    fontSize: 16,
+                    fontWeight: "700",
+                  }}
+                >
+                  Place Order
+                </Text>
+              )}
+            </Pressable>
+          </MotiView>
+        </ScrollView>
+      </AnimatedScreen>
     </SafeAreaView>
+  );
+}
+
+function Row({
+  label,
+  value,
+  bold,
+}: {
+  label: string;
+  value: string;
+  bold?: boolean;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-between",
+        marginBottom: 10,
+      }}
+    >
+      <Text
+        style={{
+          color: COLORS.textSecondary,
+          fontWeight: bold ? "700" : "400",
+          fontSize: bold ? 16 : 14,
+        }}
+      >
+        {label}
+      </Text>
+
+      <Text
+        style={{
+          color: COLORS.textPrimary,
+          fontWeight: bold ? "800" : "700",
+          fontSize: bold ? 18 : 14,
+        }}
+      >
+        {value}
+      </Text>
+    </View>
   );
 }

@@ -2,8 +2,14 @@
   "name": "furniture-showroom",
   "private": true,
   "version": "1.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"],
   "scripts": {
     "dev:admin": "pnpm --dir apps/admin dev",
     "dev:mobile": "pnpm --dir apps/mobile start"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
   }
 }

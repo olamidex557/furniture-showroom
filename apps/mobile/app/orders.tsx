@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -7,26 +6,62 @@ import {
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { MotiView } from "moti";
 import { useUser } from "@clerk/clerk-expo";
-import { fetchOrders, type OrderHistoryItem } from "../src/lib/products";
+import { supabase } from "../src/lib/supabase";
 import { COLORS } from "../src/constants/colors";
+import { sendInAppNotification } from "../src/lib/in-app-notifications";
+import AnimatedScreen from "../src/components/AnimatedScreen";
+import AnimatedCard from "../src/components/AnimatedCard";
 
-function formatDate(dateString: string) {
-  return new Date(dateString).toLocaleString();
+type OrderItem = {
+  id: string;
+  clerk_user_id: string | null;
+  customer_name: string | null;
+  status: string;
+  delivery_method: string;
+  phone: string | null;
+  address: string | null;
+  subtotal: number;
+  delivery_fee: number;
+  total: number;
+  created_at: string;
+};
+
+function formatCurrency(value: number) {
+  return `₦${Number(value || 0).toLocaleString()}`;
 }
 
-function getStatusStyles(status: string) {
+function formatDate(value: string) {
+  return new Date(value).toLocaleString();
+}
+
+function getStatusColors(status: string) {
   switch (status.toLowerCase()) {
     case "completed":
-      return { bg: "#DCFCE7", text: "#166534" };
+      return {
+        background: "#DCFCE7",
+        text: "#166534",
+      };
     case "processing":
-      return { bg: "#DBEAFE", text: "#1D4ED8" };
+      return {
+        background: "#DBEAFE",
+        text: "#1D4ED8",
+      };
     case "cancelled":
-      return { bg: "#FEE2E2", text: "#991B1B" };
+      return {
+        background: "#FEE2E2",
+        text: "#B91C1C",
+      };
     case "pending":
     default:
-      return { bg: "#FEF3C7", text: "#B45309" };
+      return {
+        background: "#FEF3C7",
+        text: "#B45309",
+      };
   }
 }
 
@@ -34,39 +69,146 @@ export default function OrdersScreen() {
   const router = useRouter();
   const { user, isLoaded, isSignedIn } = useUser();
 
-  const [orders, setOrders] = useState<OrderHistoryItem[]>([]);
+  const [orders, setOrders] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const loadOrders = async () => {
-    try {
-      if (!user) return;
-      setLoading(true);
-      setError(null);
-      const result = await fetchOrders(user.id);
-      setOrders(result);
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to load orders.";
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const lastStatusesRef = useRef<Record<string, string>>({});
+
+  const loadOrders = useCallback(
+    async (showLoader = false) => {
+      if (!isLoaded) return;
+
+      if (!isSignedIn || !user) {
+        setOrders([]);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      try {
+        if (showLoader) {
+          setLoading(true);
+        } else {
+          setRefreshing(true);
+        }
+
+        const { data, error } = await supabase
+          .from("orders")
+          .select(`
+            id,
+            clerk_user_id,
+            customer_name,
+            status,
+            delivery_method,
+            phone,
+            address,
+            subtotal,
+            delivery_fee,
+            total,
+            created_at
+          `)
+          .eq("clerk_user_id", user.id)
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        const nextOrders = (data ?? []) as OrderItem[];
+        setOrders(nextOrders);
+
+        const statusMap: Record<string, string> = {};
+        for (const order of nextOrders) {
+          statusMap[order.id] = order.status;
+        }
+        lastStatusesRef.current = statusMap;
+      } catch (error) {
+        console.log("Failed to load orders:", error);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [isLoaded, isSignedIn, user]
+  );
 
   useEffect(() => {
-    if (isLoaded && isSignedIn && user) {
-      loadOrders();
-    } else if (isLoaded) {
-      setLoading(false);
-    }
-  }, [isLoaded, isSignedIn, user]);
+    loadOrders(true);
+  }, [loadOrders]);
 
-  if (!isLoaded) {
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || !user) return;
+
+    const channel = supabase
+      .channel(`orders-realtime-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "orders",
+          filter: `clerk_user_id=eq.${user.id}`,
+        },
+        async (payload) => {
+          const eventType = payload.eventType;
+
+          if (eventType === "UPDATE") {
+            const newRow = payload.new as OrderItem;
+            const oldStatus = lastStatusesRef.current[newRow.id];
+            const newStatus = newRow.status;
+
+            if (oldStatus && oldStatus !== newStatus) {
+              sendInAppNotification({
+                title: "Order Update",
+                body: `Your order #${newRow.id.slice(0, 8)} is now ${newStatus}.`,
+              });
+            }
+
+            lastStatusesRef.current[newRow.id] = newStatus;
+          }
+
+          if (eventType === "INSERT") {
+            const newRow = payload.new as OrderItem;
+            lastStatusesRef.current[newRow.id] = newRow.status;
+
+            sendInAppNotification({
+              title: "New Order",
+              body: `A new order #${newRow.id.slice(0, 8)} has been added to your history.`,
+            });
+          }
+
+          await loadOrders(false);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isLoaded, isSignedIn, user, loadOrders]);
+
+  if (!isLoaded || loading) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <View
+          style={{
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
           <ActivityIndicator size="large" color={COLORS.primaryDark} />
+          <Text
+            style={{
+              marginTop: 12,
+              color: COLORS.textSecondary,
+              fontSize: 16,
+              fontWeight: "600",
+            }}
+          >
+            Loading orders...
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -75,265 +217,261 @@ export default function OrdersScreen() {
   if (!isSignedIn || !user) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-        <View style={{ flex: 1, justifyContent: "center", padding: 16 }}>
+        <AnimatedScreen>
           <View
             style={{
-              backgroundColor: COLORS.surface,
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              padding: 28,
-              alignItems: "center",
+              flex: 1,
+              padding: 20,
+              justifyContent: "center",
             }}
           >
-            <Text style={{ fontSize: 34, marginBottom: 16 }}>🔐</Text>
-
-            <Text
+            <AnimatedCard
               style={{
-                fontSize: 24,
-                fontWeight: "700",
-                color: COLORS.textPrimary,
-                marginBottom: 8,
-                textAlign: "center",
-              }}
-            >
-              Sign in to view orders
-            </Text>
-
-            <Text
-              style={{
-                fontSize: 15,
-                color: COLORS.textSecondary,
-                textAlign: "center",
-                lineHeight: 22,
-                marginBottom: 18,
-              }}
-            >
-              Your order history is tied to your account.
-            </Text>
-
-            <Pressable
-              onPress={() => router.push("/sign-in" as any)}
-              style={{
-                backgroundColor: COLORS.primary,
-                paddingHorizontal: 22,
-                paddingVertical: 13,
-                borderRadius: 999,
+                backgroundColor: COLORS.surface,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                padding: 22,
               }}
             >
               <Text
                 style={{
-                  color: COLORS.white,
+                  fontSize: 26,
                   fontWeight: "700",
-                  fontSize: 15,
+                  color: COLORS.textPrimary,
+                  marginBottom: 8,
                 }}
               >
-                Sign In
+                Sign in required
               </Text>
-            </Pressable>
+
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: COLORS.textSecondary,
+                  lineHeight: 22,
+                  marginBottom: 18,
+                }}
+              >
+                Sign in to view your orders and receive live status updates.
+              </Text>
+
+              <Pressable
+                onPress={() => router.push("/sign-in" as any)}
+                style={{
+                  backgroundColor: COLORS.primary,
+                  borderRadius: 16,
+                  paddingVertical: 15,
+                  alignItems: "center",
+                }}
+              >
+                <Text
+                  style={{
+                    color: COLORS.white,
+                    fontWeight: "700",
+                    fontSize: 16,
+                  }}
+                >
+                  Sign In
+                </Text>
+              </Pressable>
+            </AnimatedCard>
           </View>
-        </View>
+        </AnimatedScreen>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
-      >
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 18,
-          }}
+      <AnimatedScreen>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         >
-          <Pressable
-            onPress={() => router.back()}
+          <MotiView
+            from={{ opacity: 0, translateY: -10 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: "timing", duration: 350 }}
             style={{
-              width: 42,
-              height: 42,
-              borderRadius: 14,
-              backgroundColor: COLORS.surface,
-              borderWidth: 1,
-              borderColor: COLORS.border,
+              flexDirection: "row",
               alignItems: "center",
-              justifyContent: "center",
+              justifyContent: "space-between",
+              marginBottom: 18,
             }}
           >
-            <Text style={{ fontSize: 20, color: COLORS.textPrimary }}>‹</Text>
-          </Pressable>
-
-          <Text
-            style={{
-              fontSize: 20,
-              fontWeight: "700",
-              color: COLORS.textPrimary,
-            }}
-          >
-            Order History
-          </Text>
-
-          <View style={{ width: 42 }} />
-        </View>
-
-        <Text
-          style={{
-            fontSize: 30,
-            fontWeight: "700",
-            color: COLORS.textPrimary,
-            marginBottom: 6,
-          }}
-        >
-          My Orders
-        </Text>
-
-        <Text
-          style={{
-            fontSize: 14,
-            color: COLORS.textSecondary,
-            marginBottom: 20,
-          }}
-        >
-          Track your recent furniture orders
-        </Text>
-
-        {loading ? (
-          <View
-            style={{
-              paddingVertical: 40,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <ActivityIndicator size="large" color={COLORS.primaryDark} />
-            <Text style={{ marginTop: 12, color: COLORS.textSecondary }}>
-              Loading orders...
-            </Text>
-          </View>
-        ) : error ? (
-          <View
-            style={{
-              backgroundColor: "#FEF2F2",
-              borderWidth: 1,
-              borderColor: "#FECACA",
-              borderRadius: 20,
-              padding: 16,
-            }}
-          >
-            <Text style={{ color: COLORS.danger, fontWeight: "700" }}>
-              Error: {error}
-            </Text>
-          </View>
-        ) : orders.length === 0 ? (
-          <View
-            style={{
-              backgroundColor: COLORS.surface,
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              padding: 28,
-              alignItems: "center",
-            }}
-          >
-            <View
+            <Pressable
+              onPress={() => router.back()}
               style={{
-                width: 84,
-                height: 84,
-                borderRadius: 24,
-                backgroundColor: COLORS.secondary,
+                width: 42,
+                height: 42,
+                borderRadius: 14,
+                backgroundColor: COLORS.surface,
+                borderWidth: 1,
+                borderColor: COLORS.border,
                 alignItems: "center",
                 justifyContent: "center",
-                marginBottom: 18,
               }}
             >
-              <Text style={{ fontSize: 34 }}>📦</Text>
-            </View>
+              <Ionicons
+                name="chevron-back"
+                size={20}
+                color={COLORS.textPrimary}
+              />
+            </Pressable>
 
             <Text
               style={{
-                fontSize: 24,
+                fontSize: 20,
                 fontWeight: "700",
                 color: COLORS.textPrimary,
-                marginBottom: 8,
-                textAlign: "center",
               }}
             >
-              No orders yet
-            </Text>
-
-            <Text
-              style={{
-                fontSize: 15,
-                color: COLORS.textSecondary,
-                textAlign: "center",
-                lineHeight: 22,
-                marginBottom: 18,
-              }}
-            >
-              Orders you place while signed in will appear here.
+              My Orders
             </Text>
 
             <Pressable
-              onPress={() => router.replace("/" as any)}
+              onPress={() => loadOrders(false)}
               style={{
-                backgroundColor: COLORS.primary,
-                paddingHorizontal: 22,
-                paddingVertical: 13,
-                borderRadius: 999,
+                width: 42,
+                height: 42,
+                borderRadius: 14,
+                backgroundColor: COLORS.surface,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <Text
-                style={{
-                  color: COLORS.white,
-                  fontWeight: "700",
-                  fontSize: 15,
+              {refreshing ? (
+                <ActivityIndicator size="small" color={COLORS.primaryDark} />
+              ) : (
+                <MotiView
+                  from={{ rotate: "0deg" }}
+                  animate={{ rotate: refreshing ? "180deg" : "0deg" }}
+                  transition={{ type: "timing", duration: 350 }}
+                >
+                  <Ionicons
+                    name="refresh-outline"
+                    size={20}
+                    color={COLORS.textPrimary}
+                  />
+                </MotiView>
+              )}
+            </Pressable>
+          </MotiView>
+
+          <AnimatedCard
+            delay={100}
+            style={{
+              backgroundColor: COLORS.surface,
+              borderRadius: 22,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              padding: 18,
+              marginBottom: 18,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 26,
+                fontWeight: "700",
+                color: COLORS.textPrimary,
+                marginBottom: 8,
+              }}
+            >
+              Your Orders
+            </Text>
+
+            <Text
+              style={{
+                fontSize: 14,
+                lineHeight: 22,
+                color: COLORS.textSecondary,
+              }}
+            >
+              This page updates automatically when your order status changes.
+            </Text>
+          </AnimatedCard>
+
+          {orders.length === 0 ? (
+            <AnimatedCard
+              delay={160}
+              style={{
+                backgroundColor: COLORS.surface,
+                borderRadius: 22,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                padding: 22,
+                alignItems: "center",
+              }}
+            >
+              <MotiView
+                from={{ scale: 0.9, opacity: 0.4 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{
+                  type: "timing",
+                  duration: 500,
+                  loop: true,
                 }}
               >
-                Start Shopping
+                <Ionicons
+                  name="cube-outline"
+                  size={42}
+                  color={COLORS.textSecondary}
+                />
+              </MotiView>
+
+              <Text
+                style={{
+                  fontSize: 20,
+                  fontWeight: "700",
+                  color: COLORS.textPrimary,
+                  marginTop: 12,
+                  marginBottom: 6,
+                }}
+              >
+                No orders yet
               </Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View>
-            {orders.map((order) => {
-              const statusStyles = getStatusStyles(order.status);
+
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: COLORS.textSecondary,
+                  textAlign: "center",
+                  lineHeight: 22,
+                }}
+              >
+                Once you place an order, it will appear here with live updates.
+              </Text>
+            </AnimatedCard>
+          ) : (
+            orders.map((order, index) => {
+              const statusColors = getStatusColors(order.status);
 
               return (
-                <Pressable
+                <AnimatedCard
                   key={order.id}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/order/[id]",
-                      params: { id: order.id },
-                    } as any)
-                  }
+                  delay={180 + index * 70}
                   style={{
                     backgroundColor: COLORS.surface,
                     borderRadius: 22,
                     borderWidth: 1,
                     borderColor: COLORS.border,
-                    padding: 16,
+                    padding: 18,
                     marginBottom: 14,
-                    shadowColor: "#000",
-                    shadowOpacity: 0.04,
-                    shadowRadius: 10,
-                    shadowOffset: { width: 0, height: 6 },
-                    elevation: 2,
                   }}
                 >
                   <View
                     style={{
                       flexDirection: "row",
-                      justifyContent: "space-between",
                       alignItems: "flex-start",
+                      justifyContent: "space-between",
                       marginBottom: 14,
+                      gap: 12,
                     }}
                   >
-                    <View style={{ flex: 1, paddingRight: 10 }}>
+                    <View style={{ flex: 1 }}>
                       <Text
                         style={{
                           fontSize: 17,
@@ -365,175 +503,131 @@ export default function OrdersScreen() {
                       </Text>
                     </View>
 
-                    <View
+                    <MotiView
+                      from={{ scale: 0.92, opacity: 0.7 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ type: "timing", duration: 260 }}
                       style={{
-                        backgroundColor: statusStyles.bg,
+                        backgroundColor: statusColors.background,
                         paddingHorizontal: 12,
-                        paddingVertical: 6,
+                        paddingVertical: 7,
                         borderRadius: 999,
                       }}
                     >
                       <Text
                         style={{
-                          color: statusStyles.text,
-                          fontSize: 12,
+                          color: statusColors.text,
                           fontWeight: "700",
+                          fontSize: 12,
                           textTransform: "capitalize",
                         }}
                       >
                         {order.status}
                       </Text>
-                    </View>
+                    </MotiView>
                   </View>
 
                   <View
                     style={{
                       backgroundColor: COLORS.accent,
                       borderRadius: 16,
-                      padding: 12,
+                      padding: 14,
                       marginBottom: 14,
                     }}
                   >
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        color: COLORS.textSecondary,
-                        marginBottom: 6,
-                      }}
-                    >
-                      Delivery Method:{" "}
-                      <Text
-                        style={{
-                          color: COLORS.textPrimary,
-                          fontWeight: "700",
-                          textTransform: "capitalize",
-                        }}
-                      >
-                        {order.delivery_method}
-                      </Text>
-                    </Text>
-
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        color: COLORS.textSecondary,
-                        marginBottom: 6,
-                      }}
-                    >
-                      Phone:{" "}
-                      <Text
-                        style={{
-                          color: COLORS.textPrimary,
-                          fontWeight: "700",
-                        }}
-                      >
-                        {order.phone ?? "N/A"}
-                      </Text>
-                    </Text>
-
-                    {order.delivery_method === "delivery" ? (
-                      <Text
-                        style={{
-                          fontSize: 13,
-                          color: COLORS.textSecondary,
-                        }}
-                      >
-                        Address:{" "}
-                        <Text
-                          style={{
-                            color: COLORS.textPrimary,
-                            fontWeight: "700",
-                          }}
-                        >
-                          {order.address ?? "N/A"}
-                        </Text>
-                      </Text>
-                    ) : null}
+                    <InfoRow label="Delivery Method" value={order.delivery_method} />
+                    <InfoRow label="Phone" value={order.phone || "Not provided"} />
+                    <InfoRow
+                      label="Address"
+                      value={
+                        order.delivery_method === "delivery"
+                          ? order.address || "Not provided"
+                          : "Customer pickup"
+                      }
+                      noMargin
+                    />
                   </View>
 
                   <View
                     style={{
                       flexDirection: "row",
-                      justifyContent: "space-between",
-                      marginBottom: 8,
-                    }}
-                  >
-                    <Text style={{ color: COLORS.textSecondary, fontSize: 14 }}>
-                      Subtotal
-                    </Text>
-                    <Text
-                      style={{
-                        color: COLORS.textPrimary,
-                        fontWeight: "700",
-                        fontSize: 14,
-                      }}
-                    >
-                      ₦{Number(order.subtotal).toLocaleString()}
-                    </Text>
-                  </View>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      marginBottom: 12,
-                    }}
-                  >
-                    <Text style={{ color: COLORS.textSecondary, fontSize: 14 }}>
-                      Delivery Fee
-                    </Text>
-                    <Text
-                      style={{
-                        color: COLORS.textPrimary,
-                        fontWeight: "700",
-                        fontSize: 14,
-                      }}
-                    >
-                      ₦{Number(order.delivery_fee).toLocaleString()}
-                    </Text>
-                  </View>
-
-                  <View
-                    style={{
-                      height: 1,
-                      backgroundColor: COLORS.border,
-                      marginBottom: 12,
-                    }}
-                  />
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
                       alignItems: "center",
+                      justifyContent: "space-between",
                     }}
                   >
                     <Text
                       style={{
-                        fontSize: 16,
-                        fontWeight: "700",
-                        color: COLORS.textPrimary,
+                        fontSize: 14,
+                        color: COLORS.textSecondary,
                       }}
                     >
                       Total
                     </Text>
 
-                    <Text
-                      style={{
-                        fontSize: 20,
-                        fontWeight: "800",
-                        color: COLORS.primaryDark,
-                      }}
+                    <MotiView
+                      from={{ opacity: 0.7, scale: 0.96 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ type: "timing", duration: 280 }}
                     >
-                      ₦{Number(order.total).toLocaleString()}
-                    </Text>
+                      <Text
+                        style={{
+                          fontSize: 18,
+                          fontWeight: "800",
+                          color: COLORS.primaryDark,
+                        }}
+                      >
+                        {formatCurrency(order.total)}
+                      </Text>
+                    </MotiView>
                   </View>
-                </Pressable>
+                </AnimatedCard>
               );
-            })}
-          </View>
-        )}
-      </ScrollView>
+            })
+          )}
+        </ScrollView>
+      </AnimatedScreen>
     </SafeAreaView>
+  );
+}
+
+function InfoRow({
+  label,
+  value,
+  noMargin,
+}: {
+  label: string;
+  value: string;
+  noMargin?: boolean;
+}) {
+  return (
+    <View
+      style={{
+        marginBottom: noMargin ? 0 : 10,
+      }}
+    >
+      <Text
+        style={{
+          fontSize: 12,
+          color: COLORS.textSecondary,
+          marginBottom: 2,
+          textTransform: "uppercase",
+          letterSpacing: 0.3,
+        }}
+      >
+        {label}
+      </Text>
+
+      <Text
+        style={{
+          fontSize: 14,
+          fontWeight: "600",
+          color: COLORS.textPrimary,
+          textTransform:
+            label === "Delivery Method" ? "capitalize" : "none",
+        }}
+      >
+        {value}
+      </Text>
+    </View>
   );
 }
