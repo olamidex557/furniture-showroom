@@ -1,27 +1,46 @@
-import { Pressable, ScrollView, Text, View, Image } from "react-native";
+import { useEffect } from "react";
+import { Pressable, ScrollView, Text, View, Image, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { MotiView } from "moti";
 import { useCart } from "../../src/context/CartContext";
 import { COLORS } from "../../src/constants/colors";
+import { supabase } from "../../src/lib/supabase";
 
 export default function CartTabScreen() {
   const router = useRouter();
-  const cart = useCart() as any;
-
-  const items = cart.items ?? cart.cartItems ?? [];
-  const increaseQuantity =
-    cart.increaseQuantity ?? cart.incrementQuantity ?? (() => {});
-  const decreaseQuantity =
-    cart.decreaseQuantity ?? cart.decrementQuantity ?? (() => {});
-  const removeItem = cart.removeItem ?? cart.removeFromCart ?? (() => {});
+  const {
+    items,
+    increaseQuantity,
+    decreaseQuantity,
+    removeItem,
+    syncStockSnapshot,
+  } = useCart();
 
   const subtotal = items.reduce(
-    (sum: number, item: any) =>
-      sum + Number(item.price) * Number(item.quantity),
+    (sum, item) => sum + Number(item.price) * Number(item.quantity),
     0
   );
+
+  useEffect(() => {
+    const syncCartStock = async () => {
+      if (items.length === 0) return;
+
+      const ids = items.map((item) => item.productId);
+
+      const { data, error } = await supabase
+        .from("products")
+        .select("id, stock, is_available")
+        .in("id", ids);
+
+      if (!error && data) {
+        syncStockSnapshot(data);
+      }
+    };
+
+    syncCartStock();
+  }, [items.length, syncStockSnapshot]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
@@ -124,181 +143,201 @@ export default function CartTabScreen() {
           </MotiView>
         ) : (
           <>
-            {items.map((item: any, index: number) => (
-              <MotiView
-                key={item.productId ?? item.id ?? index}
-                from={{ opacity: 0, translateX: -20, scale: 0.97 }}
-                animate={{ opacity: 1, translateX: 0, scale: 1 }}
-                transition={{
-                  type: "timing",
-                  duration: 350,
-                  delay: index * 70,
-                }}
-                style={{
-                  backgroundColor: COLORS.surface,
-                  borderRadius: 22,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  padding: 16,
-                  marginBottom: 14,
-                }}
-              >
-                <View
+            {items.map((item, index) => {
+              const stock = Number(item.maxStock ?? 0);
+              const inStock = Boolean(item.isAvailable ?? true) && stock > 0;
+
+              return (
+                <MotiView
+                  key={item.productId}
+                  from={{ opacity: 0, translateX: -20, scale: 0.97 }}
+                  animate={{ opacity: 1, translateX: 0, scale: 1 }}
+                  transition={{
+                    type: "timing",
+                    duration: 350,
+                    delay: index * 70,
+                  }}
                   style={{
-                    flexDirection: "row",
-                    gap: 14,
+                    backgroundColor: COLORS.surface,
+                    borderRadius: 22,
+                    borderWidth: 1,
+                    borderColor: COLORS.border,
+                    padding: 16,
+                    marginBottom: 14,
                   }}
                 >
                   <View
                     style={{
-                      width: 86,
-                      height: 86,
-                      borderRadius: 16,
-                      backgroundColor: COLORS.accent,
-                      overflow: "hidden",
-                      alignItems: "center",
-                      justifyContent: "center",
+                      flexDirection: "row",
+                      gap: 14,
                     }}
                   >
-                    {item.image ? (
-                      <Image
-                        source={{ uri: item.image }}
-                        style={{ width: "100%", height: "100%" }}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <Ionicons
-                        name="image-outline"
-                        size={24}
-                        color={COLORS.textSecondary}
-                      />
-                    )}
-                  </View>
-
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={{
-                        fontSize: 16,
-                        fontWeight: "700",
-                        color: COLORS.textPrimary,
-                        marginBottom: 6,
-                      }}
-                    >
-                      {item.name}
-                    </Text>
-
-                    <Text
-                      style={{
-                        fontSize: 14,
-                        fontWeight: "800",
-                        color: COLORS.primaryDark,
-                        marginBottom: 12,
-                      }}
-                    >
-                      ₦{Number(item.price).toLocaleString()}
-                    </Text>
-
                     <View
                       style={{
-                        flexDirection: "row",
+                        width: 86,
+                        height: 86,
+                        borderRadius: 16,
+                        backgroundColor: COLORS.accent,
+                        overflow: "hidden",
                         alignItems: "center",
-                        justifyContent: "space-between",
+                        justifyContent: "center",
                       }}
                     >
+                      {item.image ? (
+                        <Image
+                          source={{ uri: item.image }}
+                          style={{ width: "100%", height: "100%" }}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <Ionicons
+                          name="image-outline"
+                          size={24}
+                          color={COLORS.textSecondary}
+                        />
+                      )}
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          fontSize: 16,
+                          fontWeight: "700",
+                          color: COLORS.textPrimary,
+                          marginBottom: 6,
+                        }}
+                      >
+                        {item.name}
+                      </Text>
+
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontWeight: "800",
+                          color: COLORS.primaryDark,
+                          marginBottom: 6,
+                        }}
+                      >
+                        ₦{Number(item.price).toLocaleString()}
+                      </Text>
+
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: "700",
+                          color: inStock ? "#166534" : "#B91C1C",
+                          marginBottom: 10,
+                        }}
+                      >
+                        {inStock ? `${stock} in stock` : "Out of stock"}
+                      </Text>
+
                       <View
                         style={{
                           flexDirection: "row",
                           alignItems: "center",
-                          backgroundColor: COLORS.background,
-                          borderRadius: 14,
-                          borderWidth: 1,
-                          borderColor: COLORS.border,
-                          overflow: "hidden",
+                          justifyContent: "space-between",
                         }}
                       >
-                        <Pressable
-                          onPress={() =>
-                            decreaseQuantity(item.productId ?? item.id)
-                          }
-                          style={({ pressed }) => ({
-                            paddingHorizontal: 14,
-                            paddingVertical: 10,
-                            backgroundColor: pressed
-                              ? COLORS.accent
-                              : "transparent",
-                            transform: [{ scale: pressed ? 0.92 : 1 }],
-                          })}
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            backgroundColor: COLORS.background,
+                            borderRadius: 14,
+                            borderWidth: 1,
+                            borderColor: COLORS.border,
+                            overflow: "hidden",
+                          }}
                         >
-                          <Ionicons
-                            name="remove"
-                            size={16}
-                            color={COLORS.textPrimary}
-                          />
-                        </Pressable>
-
-                        <MotiView
-                          key={`${item.productId ?? item.id}-${item.quantity}`}
-                          from={{ scale: 0.88, opacity: 0.7 }}
-                          animate={{ scale: 1, opacity: 1 }}
-                          transition={{ type: "timing", duration: 160 }}
-                        >
-                          <Text
-                            style={{
-                              minWidth: 36,
-                              textAlign: "center",
-                              fontWeight: "700",
-                              color: COLORS.textPrimary,
-                            }}
+                          <Pressable
+                            onPress={() => decreaseQuantity(item.productId)}
+                            style={({ pressed }) => ({
+                              paddingHorizontal: 14,
+                              paddingVertical: 10,
+                              backgroundColor: pressed
+                                ? COLORS.accent
+                                : "transparent",
+                              transform: [{ scale: pressed ? 0.92 : 1 }],
+                            })}
                           >
-                            {item.quantity}
-                          </Text>
-                        </MotiView>
+                            <Ionicons
+                              name="remove"
+                              size={16}
+                              color={COLORS.textPrimary}
+                            />
+                          </Pressable>
+
+                          <MotiView
+                            key={`${item.productId}-${item.quantity}`}
+                            from={{ scale: 0.88, opacity: 0.7 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{ type: "timing", duration: 160 }}
+                          >
+                            <Text
+                              style={{
+                                minWidth: 36,
+                                textAlign: "center",
+                                fontWeight: "700",
+                                color: COLORS.textPrimary,
+                              }}
+                            >
+                              {item.quantity}
+                            </Text>
+                          </MotiView>
+
+                          <Pressable
+                            onPress={() => {
+                              const result = increaseQuantity(item.productId);
+                              if (!result.ok) {
+                                Alert.alert(
+                                  "Stock Limit",
+                                  result.reason || "Unable to increase quantity."
+                                );
+                              }
+                            }}
+                            style={({ pressed }) => ({
+                              paddingHorizontal: 14,
+                              paddingVertical: 10,
+                              backgroundColor: pressed
+                                ? COLORS.accent
+                                : "transparent",
+                              transform: [{ scale: pressed ? 0.92 : 1 }],
+                            })}
+                          >
+                            <Ionicons
+                              name="add"
+                              size={16}
+                              color={COLORS.textPrimary}
+                            />
+                          </Pressable>
+                        </View>
 
                         <Pressable
-                          onPress={() =>
-                            increaseQuantity(item.productId ?? item.id)
-                          }
+                          onPress={() => removeItem(item.productId)}
                           style={({ pressed }) => ({
-                            paddingHorizontal: 14,
-                            paddingVertical: 10,
-                            backgroundColor: pressed
-                              ? COLORS.accent
-                              : "transparent",
-                            transform: [{ scale: pressed ? 0.92 : 1 }],
+                            width: 38,
+                            height: 38,
+                            borderRadius: 12,
+                            backgroundColor: "#FEE2E2",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            transform: [{ scale: pressed ? 0.9 : 1 }],
+                            opacity: pressed ? 0.9 : 1,
                           })}
                         >
                           <Ionicons
-                            name="add"
-                            size={16}
-                            color={COLORS.textPrimary}
+                            name="trash-outline"
+                            size={18}
+                            color="#B91C1C"
                           />
                         </Pressable>
                       </View>
-
-                      <Pressable
-                        onPress={() => removeItem(item.productId ?? item.id)}
-                        style={({ pressed }) => ({
-                          width: 38,
-                          height: 38,
-                          borderRadius: 12,
-                          backgroundColor: "#FEE2E2",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          transform: [{ scale: pressed ? 0.9 : 1 }],
-                          opacity: pressed ? 0.9 : 1,
-                        })}
-                      >
-                        <Ionicons
-                          name="trash-outline"
-                          size={18}
-                          color="#B91C1C"
-                        />
-                      </Pressable>
                     </View>
                   </View>
-                </View>
-              </MotiView>
-            ))}
+                </MotiView>
+              );
+            })}
 
             <MotiView
               from={{ opacity: 0, translateY: 20 }}

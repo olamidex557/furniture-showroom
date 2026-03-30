@@ -14,7 +14,6 @@ import { MotiView } from "moti";
 import { useUser } from "@clerk/clerk-expo";
 import { supabase } from "../src/lib/supabase";
 import { useCart } from "../src/context/CartContext";
-import type { CartItem } from "../src/types/cart";
 import { COLORS } from "../src/constants/colors";
 import { sendInAppNotification } from "../src/lib/in-app-notifications";
 import { fetchAppSettings } from "../src/lib/products";
@@ -33,12 +32,19 @@ type ProfileRow = {
   delivery_address: string | null;
 };
 
+type LiveProductStock = {
+  id: string;
+  name: string;
+  stock: number;
+  is_available: boolean;
+};
+
 export default function CheckoutScreen() {
   const router = useRouter();
   const { user, isLoaded, isSignedIn } = useUser();
-  const { items, clearCart } = useCart();
+  const { items, clearCart, syncStockSnapshot } = useCart();
 
-  const cartItems: CartItem[] = items ?? [];
+  const cartItems = items;
 
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [loadingSettings, setLoadingSettings] = useState(true);
@@ -54,7 +60,7 @@ export default function CheckoutScreen() {
   const [pickupEnabled, setPickupEnabled] = useState(true);
 
   const subtotal = useMemo(() => {
-    return cartItems.reduce<number>((sum: number, item: CartItem) => {
+    return cartItems.reduce((sum, item) => {
       return sum + Number(item.price) * Number(item.quantity);
     }, 0);
   }, [cartItems]);
@@ -150,6 +156,43 @@ export default function CheckoutScreen() {
     };
   };
 
+  const validateLiveStock = async () => {
+    const productIds = cartItems.map((item) => item.productId);
+
+    const { data, error } = await supabase
+      .from("products")
+      .select("id, name, stock, is_available")
+      .in("id", productIds);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const liveProducts = (data ?? []) as LiveProductStock[];
+
+    syncStockSnapshot(liveProducts);
+
+    for (const cartItem of cartItems) {
+      const live = liveProducts.find((product) => product.id === cartItem.productId);
+
+      if (!live) {
+        throw new Error(`${cartItem.name} could not be validated.`);
+      }
+
+      if (!live.is_available || Number(live.stock) <= 0) {
+        throw new Error(`${live.name} is now out of stock.`);
+      }
+
+      if (cartItem.quantity > Number(live.stock)) {
+        throw new Error(
+          `${live.name} only has ${live.stock} item(s) left in stock.`
+        );
+      }
+    }
+
+    return liveProducts;
+  };
+
   const handlePlaceOrder = async () => {
     try {
       setPlacingOrder(true);
@@ -175,6 +218,8 @@ export default function CheckoutScreen() {
         Alert.alert("Cart empty", "Add items before checkout.");
         return;
       }
+
+      const liveProducts = await validateLiveStock();
 
       const { data: order, error: orderError } = await supabase
         .from("orders")
@@ -203,6 +248,12 @@ export default function CheckoutScreen() {
           throw new Error("Cart item not found during order creation.");
         }
 
+        const liveProduct = liveProducts.find((p) => p.id === item.productId);
+
+        if (!liveProduct) {
+          throw new Error("Live stock product not found.");
+        }
+
         const { error: itemError } = await supabase.from("order_items").insert({
           order_id: order.id,
           product_id: item.productId,
@@ -213,6 +264,21 @@ export default function CheckoutScreen() {
 
         if (itemError) {
           throw new Error(itemError.message);
+        }
+
+        const nextStock = Number(liveProduct.stock) - Number(item.quantity);
+
+        const { error: stockUpdateError } = await supabase
+          .from("products")
+          .update({
+            stock: nextStock,
+            is_available: nextStock > 0 ? liveProduct.is_available : false,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", item.productId);
+
+        if (stockUpdateError) {
+          throw new Error(stockUpdateError.message);
         }
       }
 
@@ -243,7 +309,7 @@ export default function CheckoutScreen() {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Something went wrong";
-      Alert.alert("Error", message);
+      Alert.alert("Stock Check", message);
     } finally {
       setPlacingOrder(false);
     }

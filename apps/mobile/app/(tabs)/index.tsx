@@ -7,6 +7,7 @@ import {
   Text,
   TextInput,
   View,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -29,6 +30,9 @@ function AnimatedProductCard({
   onOpen: () => void;
 }) {
   const imageUrl = item.product_images?.[0]?.image_url ?? null;
+  const stock = Number(item.stock ?? 0);
+  const isAvailable = Boolean(item.is_available ?? true);
+  const inStock = isAvailable && stock > 0;
 
   return (
     <MotiView
@@ -108,7 +112,7 @@ function AnimatedProductCard({
               animate={{ scale: 1, opacity: 1 }}
               transition={{ type: "timing", duration: 280, delay: 150 + index * 50 }}
               style={{
-                backgroundColor: Number(item.stock) > 0 ? "#DCFCE7" : "#FEE2E2",
+                backgroundColor: inStock ? "#DCFCE7" : "#FEE2E2",
                 borderRadius: 999,
                 paddingHorizontal: 10,
                 paddingVertical: 6,
@@ -116,12 +120,12 @@ function AnimatedProductCard({
             >
               <Text
                 style={{
-                  color: Number(item.stock) > 0 ? "#166534" : "#B91C1C",
+                  color: inStock ? "#166534" : "#B91C1C",
                   fontWeight: "700",
                   fontSize: 11,
                 }}
               >
-                {Number(item.stock) > 0 ? "In Stock" : "Out of Stock"}
+                {inStock ? `${stock} left` : "Out of Stock"}
               </Text>
             </MotiView>
           </View>
@@ -189,25 +193,21 @@ function AnimatedProductCard({
             >
               <Pressable
                 onPress={onAddToCart}
-                disabled={Number(item.stock) <= 0}
+                disabled={!inStock}
                 style={{
                   borderRadius: 14,
                   paddingVertical: 13,
                   alignItems: "center",
-                  backgroundColor:
-                    Number(item.stock) > 0 ? COLORS.primary : COLORS.border,
+                  backgroundColor: inStock ? COLORS.primary : COLORS.border,
                 }}
               >
                 <Text
                   style={{
-                    color:
-                      Number(item.stock) > 0
-                        ? COLORS.white
-                        : COLORS.textSecondary,
+                    color: inStock ? COLORS.white : COLORS.textSecondary,
                     fontWeight: "700",
                   }}
                 >
-                  Add to Cart
+                  {inStock ? "Add to Cart" : "Unavailable"}
                 </Text>
               </Pressable>
             </MotiView>
@@ -220,14 +220,7 @@ function AnimatedProductCard({
 
 export default function HomeScreen() {
   const router = useRouter();
-  const cart = useCart() as any;
-
-  const addItem =
-    cart.addItem ||
-    cart.addToCart ||
-    ((item: any) => {
-      console.log("Add item handler missing", item);
-    });
+  const { addItem } = useCart();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -282,13 +275,20 @@ export default function HomeScreen() {
   }, [products, activeCategory, search]);
 
   const handleAddToCart = (item: Product) => {
-    addItem({
+    const result = addItem({
       productId: item.id,
       name: item.name,
       price: Number(item.price),
       quantity: 1,
       image: item.product_images?.[0]?.image_url ?? null,
+      maxStock: Number(item.stock ?? 0),
+      isAvailable: Boolean(item.is_available ?? true),
     });
+
+    if (!result.ok) {
+      Alert.alert("Stock Limit", result.reason || "Unable to add item.");
+      return;
+    }
 
     setAddedProductName(item.name);
 

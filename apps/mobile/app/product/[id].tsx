@@ -6,6 +6,7 @@ import {
   ScrollView,
   Text,
   View,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -21,14 +22,7 @@ import AnimatedCard from "../../src/components/AnimatedCard";
 export default function ProductDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string }>();
-  const cart = useCart() as any;
-
-  const addItem =
-    cart.addItem ||
-    cart.addToCart ||
-    ((item: any) => {
-      console.log("Add item handler missing", item);
-    });
+  const { addItem, getItemQuantity } = useCart();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -155,7 +149,26 @@ export default function ProductDetailsScreen() {
   }
 
   const imageUrl = product.product_images?.[0]?.image_url ?? null;
-  const inStock = Number(product.stock) > 0;
+  const stock = Number(product.stock ?? 0);
+  const isAvailable = Boolean(product.is_available ?? true);
+  const inStock = isAvailable && stock > 0;
+  const cartQty = getItemQuantity(product.id);
+
+  const handleAddToCart = () => {
+    const result = addItem({
+      productId: product.id,
+      name: product.name,
+      price: Number(product.price),
+      quantity: 1,
+      image: imageUrl,
+      maxStock: stock,
+      isAvailable,
+    });
+
+    if (!result.ok) {
+      Alert.alert("Stock Limit", result.reason || "Unable to add item.");
+    }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
@@ -248,7 +261,7 @@ export default function ProductDetailsScreen() {
                     fontSize: 12,
                   }}
                 >
-                  {inStock ? "In Stock" : "Out of Stock"}
+                  {inStock ? `${stock} left` : "Out of Stock"}
                 </Text>
               </MotiView>
             </View>
@@ -337,7 +350,11 @@ export default function ProductDetailsScreen() {
                 Product Details
               </Text>
 
-              <InfoRow label="Stock" value={String(product.stock ?? 0)} />
+              <InfoRow label="Stock" value={String(stock)} />
+              <InfoRow
+                label="Already in cart"
+                value={String(cartQty)}
+              />
               <InfoRow
                 label="Dimensions"
                 value={product.dimensions || "Not specified"}
@@ -352,15 +369,7 @@ export default function ProductDetailsScreen() {
             >
               <Pressable
                 disabled={!inStock}
-                onPress={() =>
-                  addItem({
-                    productId: product.id,
-                    name: product.name,
-                    price: Number(product.price),
-                    quantity: 1,
-                    image: imageUrl,
-                  })
-                }
+                onPress={handleAddToCart}
                 style={{
                   backgroundColor: inStock ? COLORS.primary : COLORS.border,
                   borderRadius: 16,
