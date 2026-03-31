@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -8,16 +10,32 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { MotiView } from "moti";
 import { useClerk, useUser } from "@clerk/clerk-expo";
+import { supabase } from "../src/lib/supabase";
 import { COLORS } from "../src/constants/colors";
-import AnimatedScreen from "../src/components/AnimatedScreen";
-import AnimatedCard from "../src/components/AnimatedCard";
+
+type Profile = {
+  full_name: string | null;
+  phone: string | null;
+  delivery_zone: string | null;
+  street_address: string | null;
+  landmark: string | null;
+};
+
+type MenuItemProps = {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value?: string;
+  onPress: () => void;
+};
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { user, isLoaded, isSignedIn } = useUser();
   const { signOut } = useClerk();
+
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const displayName =
     [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
@@ -27,357 +45,205 @@ export default function SettingsScreen() {
   const email =
     user?.primaryEmailAddress?.emailAddress ||
     user?.emailAddresses?.[0]?.emailAddress ||
-    "No email found";
+    "No email";
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!isSignedIn || !user) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select(
+            "full_name, phone, delivery_zone, street_address, landmark"
+          )
+          .eq("clerk_user_id", user.id)
+          .maybeSingle();
+
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        setProfile((data as Profile | null) ?? null);
+      } catch (error) {
+        console.log("Profile load error:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadProfile();
+  }, [isSignedIn, user]);
 
   const handleLogout = async () => {
     try {
       await signOut();
       router.replace("/" as any);
-    } catch (error) {
-      Alert.alert("Logout failed", "Something went wrong while signing out.");
+    } catch {
+      Alert.alert("Logout failed", "Please try again.");
     }
   };
 
+  const addressPreview = profile?.delivery_zone
+    ? `${profile.delivery_zone} • ${profile.street_address ?? ""}${
+        profile?.landmark ? ` • ${profile.landmark}` : ""
+      }`
+    : "Not set";
+
+  if (!isLoaded || loading) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+        <View
+          style={{
+            flex: 1,
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <ActivityIndicator size="large" color={COLORS.primaryDark} />
+          <Text style={{ marginTop: 10, color: COLORS.textSecondary }}>
+            Loading settings...
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-      <AnimatedScreen>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 24,
+          }}
         >
-          <MotiView
-            from={{ opacity: 0, translateY: -8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: "timing", duration: 350 }}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 18,
-            }}
-          >
-            <Pressable
-              onPress={() => router.back()}
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: 14,
-                backgroundColor: COLORS.surface,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text style={{ fontSize: 20, color: COLORS.textPrimary }}>‹</Text>
-            </Pressable>
+          <Text style={{ fontSize: 24, fontWeight: "700", color: COLORS.textPrimary }}>
+            Settings
+          </Text>
 
-            <Text
-              style={{
-                fontSize: 20,
-                fontWeight: "700",
-                color: COLORS.textPrimary,
-              }}
-            >
-              Settings
+          <Pressable onPress={() => router.back()}>
+            <Ionicons name="close" size={22} color={COLORS.textPrimary} />
+          </Pressable>
+        </View>
+
+        <View style={card}>
+          <Text style={label}>ACCOUNT</Text>
+
+          <Text style={title}>{displayName}</Text>
+          <Text style={sub}>{email}</Text>
+        </View>
+
+        <View style={card}>
+          <MenuItem
+            icon="location-outline"
+            label="Delivery Address"
+            value={addressPreview}
+            onPress={() => router.push("/delivery-address" as any)}
+          />
+
+          <Divider />
+
+          <MenuItem
+            icon="call-outline"
+            label="Phone"
+            value={profile?.phone ?? "Not set"}
+            onPress={() => router.push("/delivery-address" as any)}
+          />
+        </View>
+
+        <View style={card}>
+          <MenuItem
+            icon="cube-outline"
+            label="My Orders"
+            onPress={() => router.push("/orders" as any)}
+          />
+
+          <Divider />
+
+          <MenuItem
+            icon="cart-outline"
+            label="My Cart"
+            onPress={() => router.push("/cart" as any)}
+          />
+        </View>
+
+        {isSignedIn ? (
+          <Pressable onPress={handleLogout} style={logoutBtn}>
+            <Text style={{ color: "#B91C1C", fontWeight: "700" }}>
+              Logout
             </Text>
-
-            <View style={{ width: 42 }} />
-          </MotiView>
-
-          <AnimatedCard
-            delay={100}
-            style={{
-              backgroundColor: COLORS.surface,
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              padding: 18,
-              marginBottom: 18,
-            }}
-          >
-            <Text
-              style={{
-                fontSize: 13,
-                color: COLORS.textSecondary,
-                marginBottom: 8,
-              }}
-            >
-              ACCOUNT
-            </Text>
-
-            {isLoaded && isSignedIn ? (
-              <>
-                <Text
-                  style={{
-                    fontSize: 20,
-                    fontWeight: "700",
-                    color: COLORS.textPrimary,
-                    marginBottom: 4,
-                  }}
-                >
-                  {displayName}
-                </Text>
-
-                <Text
-                  style={{
-                    fontSize: 14,
-                    color: COLORS.textSecondary,
-                  }}
-                >
-                  {email}
-                </Text>
-              </>
-            ) : (
-              <>
-                <Text
-                  style={{
-                    fontSize: 20,
-                    fontWeight: "700",
-                    color: COLORS.textPrimary,
-                    marginBottom: 4,
-                  }}
-                >
-                  Guest User
-                </Text>
-
-                <Text
-                  style={{
-                    fontSize: 14,
-                    color: COLORS.textSecondary,
-                    marginBottom: 14,
-                  }}
-                >
-                  Sign in to manage your account
-                </Text>
-
-                <Pressable
-                  onPress={() => router.push("/sign-in" as any)}
-                  style={{
-                    alignSelf: "flex-start",
-                    backgroundColor: COLORS.primary,
-                    paddingHorizontal: 16,
-                    paddingVertical: 10,
-                    borderRadius: 12,
-                  }}
-                >
-                  <Text style={{ color: COLORS.white, fontWeight: "700" }}>
-                    Sign In
-                  </Text>
-                </Pressable>
-              </>
-            )}
-          </AnimatedCard>
-
-          <AnimatedCard
-            delay={170}
-            style={{
-              backgroundColor: COLORS.surface,
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              overflow: "hidden",
-              marginBottom: 18,
-            }}
-          >
-            <MenuItem
-              icon="person-circle-outline"
-              label="Profile"
-              value={isSignedIn ? "Connected" : "Guest"}
-              onPress={() => router.push("/(tabs)/profile-tab" as any)}
-            />
-
-            <Divider />
-
-            <MenuItem
-              icon="cube-outline"
-              label="My Orders"
-              onPress={() => router.push("/orders" as any)}
-            />
-
-            <Divider />
-
-            <MenuItem
-              icon="cart-outline"
-              label="My Cart"
-              onPress={() => router.push("/cart" as any)}
-            />
-
-            <Divider />
-
-            <MenuItem
-              icon="card-outline"
-              label="Payment Methods"
-              value="Coming soon"
-              onPress={() =>
-                Alert.alert(
-                  "Coming soon",
-                  "Payment settings will be added later."
-                )
-              }
-            />
-
-            <Divider />
-
-            <MenuItem
-              icon="location-outline"
-              label="Delivery Address"
-              value="Manage"
-              onPress={() => router.push("/delivery-address" as any)}
-            />
-
-            <Divider />
-
-            <MenuItem
-              icon="notifications-outline"
-              label="Notifications"
-              value="Manage"
-              onPress={() => router.push("/notifications" as any)}
-            />
-
-            <Divider />
-
-            <MenuItem
-              icon="help-circle-outline"
-              label="Help & Support"
-              onPress={() => router.push("/help-support" as any)}
-            />
-          </AnimatedCard>
-
-          <AnimatedCard
-            delay={240}
-            style={{
-              backgroundColor: COLORS.surface,
-              borderRadius: 22,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              padding: 18,
-              marginBottom: 18,
-            }}
-          >
-            <Text
-              style={{
-                fontSize: 13,
-                color: COLORS.textSecondary,
-                marginBottom: 8,
-              }}
-            >
-              APP INFO
-            </Text>
-
-            <Text
-              style={{
-                fontSize: 15,
-                color: COLORS.textPrimary,
-                marginBottom: 6,
-              }}
-            >
-              Furniture Store
-            </Text>
-
-            <Text
-              style={{
-                fontSize: 14,
-                color: COLORS.textSecondary,
-                lineHeight: 22,
-              }}
-            >
-              Manage your account, orders, and shopping preferences from one
-              place.
-            </Text>
-          </AnimatedCard>
-
-          {isSignedIn ? (
-            <MotiView
-              from={{ opacity: 0, translateY: 18, scale: 0.98 }}
-              animate={{ opacity: 1, translateY: 0, scale: 1 }}
-              transition={{ type: "timing", duration: 380, delay: 300 }}
-            >
-              <Pressable
-                onPress={handleLogout}
-                style={{
-                  backgroundColor: "#FEE2E2",
-                  borderRadius: 16,
-                  paddingVertical: 16,
-                  alignItems: "center",
-                }}
-              >
-                <Text
-                  style={{
-                    color: "#B91C1C",
-                    fontWeight: "700",
-                    fontSize: 16,
-                  }}
-                >
-                  Logout
-                </Text>
-              </Pressable>
-            </MotiView>
-          ) : null}
-        </ScrollView>
-      </AnimatedScreen>
+          </Pressable>
+        ) : null}
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-function MenuItem({
-  icon,
-  label,
-  value,
-  onPress,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value?: string;
-  onPress: () => void;
-}) {
+const card = {
+  backgroundColor: COLORS.surface,
+  padding: 16,
+  borderRadius: 20,
+  marginBottom: 16,
+  borderWidth: 1,
+  borderColor: COLORS.border,
+} as const;
+
+const label = {
+  fontSize: 12,
+  color: COLORS.textSecondary,
+  marginBottom: 8,
+} as const;
+
+const title = {
+  fontSize: 18,
+  fontWeight: "700",
+  color: COLORS.textPrimary,
+} as const;
+
+const sub = {
+  fontSize: 14,
+  color: COLORS.textSecondary,
+} as const;
+
+const logoutBtn = {
+  backgroundColor: "#FEE2E2",
+  padding: 16,
+  borderRadius: 16,
+  alignItems: "center",
+  marginTop: 10,
+} as const;
+
+function MenuItem({ icon, label, value, onPress }: MenuItemProps) {
   return (
     <Pressable
       onPress={onPress}
       style={{
         flexDirection: "row",
         alignItems: "center",
-        padding: 16,
+        paddingVertical: 14,
       }}
     >
-      <View
-        style={{
-          width: 36,
-          height: 36,
-          borderRadius: 10,
-          backgroundColor: COLORS.accent,
-          alignItems: "center",
-          justifyContent: "center",
-          marginRight: 12,
-        }}
-      >
-        <Ionicons name={icon} size={18} color={COLORS.primaryDark} />
+      <Ionicons name={icon} size={20} color={COLORS.textPrimary} style={{ marginRight: 12 }} />
+
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontWeight: "600", color: COLORS.textPrimary }}>
+          {label}
+        </Text>
+
+        {value ? (
+          <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>
+            {value}
+          </Text>
+        ) : null}
       </View>
 
-      <Text
-        style={{
-          flex: 1,
-          fontSize: 15,
-          fontWeight: "600",
-          color: COLORS.textPrimary,
-        }}
-      >
-        {label}
-      </Text>
-
-      {value ? (
-        <Text
-          style={{
-            marginRight: 8,
-            fontSize: 13,
-            color: COLORS.textSecondary,
-          }}
-        >
-          {value}
-        </Text>
-      ) : null}
-
-      <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+      <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
     </Pressable>
   );
 }
@@ -388,7 +254,6 @@ function Divider() {
       style={{
         height: 1,
         backgroundColor: COLORS.border,
-        marginLeft: 64,
       }}
     />
   );
