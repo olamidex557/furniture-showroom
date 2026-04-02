@@ -1,13 +1,22 @@
+import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "../../../../../lib/supabase-admin";
 import { updateProductDtoSchema } from "../../../../../src/dto/product/update-product.dto";
+import {
+  deleteProductImageByUrl,
+  uploadProductImage,
+} from "../../../../../lib/upload-product-image";
 
 async function updateProduct(formData: FormData) {
   "use server";
 
   const id = String(formData.get("id") || "").trim();
+  const imageId = String(formData.get("imageId") || "").trim();
+  const currentImageUrl = String(formData.get("currentImageUrl") || "").trim();
+  const removeCurrentImage = formData.get("removeCurrentImage") === "on";
+  const newImageFile = formData.get("imageFile");
 
   const raw = {
     id,
@@ -25,14 +34,12 @@ async function updateProduct(formData: FormData) {
   if (!parsed.success) {
     const firstIssue =
       parsed.error.issues[0]?.message || "Invalid product form data.";
-    redirect(
-      `/admin/products/${id}/edit?error=${encodeURIComponent(firstIssue)}`
-    );
+    redirect(`/admin/products/${id}/edit?error=${encodeURIComponent(firstIssue)}`);
   }
 
   const dto = parsed.data;
 
-  const { error } = await supabaseAdmin
+  const { error: productError } = await supabaseAdmin
     .from("products")
     .update({
       name: dto.name,
@@ -46,12 +53,77 @@ async function updateProduct(formData: FormData) {
     })
     .eq("id", dto.id);
 
-  if (error) {
+  if (productError) {
     redirect(
       `/admin/products/${dto.id}/edit?error=${encodeURIComponent(
-        error.message
+        productError.message
       )}`
     );
+  }
+
+  const hasNewFile = newImageFile instanceof File && newImageFile.size > 0;
+
+  if (hasNewFile) {
+    try {
+      const publicUrl = await uploadProductImage(dto.id, newImageFile);
+
+      if (imageId) {
+        const { error: imageUpdateError } = await supabaseAdmin
+          .from("product_images")
+          .update({
+            image_url: publicUrl,
+          })
+          .eq("id", imageId);
+
+        if (imageUpdateError) {
+          redirect(
+            `/admin/products/${dto.id}/edit?error=${encodeURIComponent(
+              imageUpdateError.message
+            )}`
+          );
+        }
+      } else {
+        const { error: imageInsertError } = await supabaseAdmin
+          .from("product_images")
+          .insert({
+            product_id: dto.id,
+            image_url: publicUrl,
+          });
+
+        if (imageInsertError) {
+          redirect(
+            `/admin/products/${dto.id}/edit?error=${encodeURIComponent(
+              imageInsertError.message
+            )}`
+          );
+        }
+      }
+
+      if (currentImageUrl) {
+        await deleteProductImageByUrl(currentImageUrl);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Image upload failed.";
+      redirect(`/admin/products/${dto.id}/edit?error=${encodeURIComponent(message)}`);
+    }
+  } else if (removeCurrentImage && imageId) {
+    const { error: imageDeleteError } = await supabaseAdmin
+      .from("product_images")
+      .delete()
+      .eq("id", imageId);
+
+    if (imageDeleteError) {
+      redirect(
+        `/admin/products/${dto.id}/edit?error=${encodeURIComponent(
+          imageDeleteError.message
+        )}`
+      );
+    }
+
+    if (currentImageUrl) {
+      await deleteProductImageByUrl(currentImageUrl);
+    }
   }
 
   revalidatePath("/admin");
@@ -61,6 +133,23 @@ async function updateProduct(formData: FormData) {
 
   redirect("/admin/products");
 }
+
+type ProductRow = {
+  id: string;
+  name: string | null;
+  category: string | null;
+  price: number | null;
+  description: string | null;
+  dimensions: string | null;
+  stock: number | null;
+  is_available: boolean | null;
+  product_images:
+    | {
+        id: string;
+        image_url: string | null;
+      }[]
+    | null;
+};
 
 export default async function EditProductPage({
   params,
@@ -83,7 +172,11 @@ export default async function EditProductPage({
       description,
       dimensions,
       stock,
-      is_available
+      is_available,
+      product_images (
+        id,
+        image_url
+      )
     `)
     .eq("id", id)
     .single();
@@ -91,6 +184,9 @@ export default async function EditProductPage({
   if (error || !product) {
     return notFound();
   }
+
+  const typedProduct = product as ProductRow;
+  const currentImage = typedProduct.product_images?.[0] ?? null;
 
   return (
     <main className="admin-page">
@@ -100,7 +196,7 @@ export default async function EditProductPage({
             <p className="text-sm font-medium text-stone-500">Catalog</p>
             <h1 className="admin-title mt-2">Edit Product</h1>
             <p className="admin-subtitle mt-3">
-              Update the details of this product.
+              Update product details and upload a new image from your device.
             </p>
           </div>
 
@@ -117,7 +213,13 @@ export default async function EditProductPage({
           ) : null}
 
           <form action={updateProduct} className="space-y-5">
-            <input type="hidden" name="id" value={product.id} />
+            <input type="hidden" name="id" value={typedProduct.id} />
+            <input type="hidden" name="imageId" value={currentImage?.id ?? ""} />
+            <input
+              type="hidden"
+              name="currentImageUrl"
+              value={currentImage?.image_url ?? ""}
+            />
 
             <div className="grid gap-5 md:grid-cols-2">
               <div>
@@ -127,7 +229,7 @@ export default async function EditProductPage({
                 <input
                   id="name"
                   name="name"
-                  defaultValue={product.name ?? ""}
+                  defaultValue={typedProduct.name ?? ""}
                   className="admin-input"
                   required
                 />
@@ -140,7 +242,7 @@ export default async function EditProductPage({
                 <input
                   id="category"
                   name="category"
-                  defaultValue={product.category ?? ""}
+                  defaultValue={typedProduct.category ?? ""}
                   className="admin-input"
                   required
                 />
@@ -158,7 +260,7 @@ export default async function EditProductPage({
                   type="number"
                   min="0"
                   step="0.01"
-                  defaultValue={product.price ?? 0}
+                  defaultValue={typedProduct.price ?? 0}
                   className="admin-input"
                   required
                 />
@@ -174,7 +276,7 @@ export default async function EditProductPage({
                   type="number"
                   min="0"
                   step="1"
-                  defaultValue={product.stock ?? 0}
+                  defaultValue={typedProduct.stock ?? 0}
                   className="admin-input"
                   required
                 />
@@ -188,7 +290,7 @@ export default async function EditProductPage({
               <input
                 id="dimensions"
                 name="dimensions"
-                defaultValue={product.dimensions ?? ""}
+                defaultValue={typedProduct.dimensions ?? ""}
                 className="admin-input"
               />
             </div>
@@ -201,16 +303,66 @@ export default async function EditProductPage({
                 id="description"
                 name="description"
                 rows={5}
-                defaultValue={product.description ?? ""}
+                defaultValue={typedProduct.description ?? ""}
                 className="admin-textarea"
               />
+            </div>
+
+            <div className="space-y-3">
+              <label htmlFor="imageFile" className="admin-label block">
+                Product Image
+              </label>
+
+              {currentImage?.image_url ? (
+                <div className="overflow-hidden rounded-2xl border border-stone-200 bg-stone-50">
+                  <div className="relative h-56 w-full">
+                    <Image
+                      src={currentImage.image_url}
+                      alt={typedProduct.name ?? "Product image"}
+                      fill
+                      className="object-cover"
+                      sizes="(max-width: 768px) 100vw, 768px"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">
+                  No image uploaded yet.
+                </div>
+              )}
+
+              <input
+                id="imageFile"
+                name="imageFile"
+                type="file"
+                accept="image/*"
+                className="admin-input"
+              />
+
+              {currentImage?.image_url ? (
+                <label className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    name="removeCurrentImage"
+                    className="h-4 w-4 rounded border-stone-300"
+                  />
+                  <span className="text-sm font-medium text-stone-700">
+                    Remove current image if no new file is uploaded
+                  </span>
+                </label>
+              ) : null}
+
+              <p className="text-xs text-stone-500">
+                Upload a new image from your device. If you upload a new one, it
+                replaces the current image automatically.
+              </p>
             </div>
 
             <label className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3">
               <input
                 type="checkbox"
                 name="isAvailable"
-                defaultChecked={Boolean(product.is_available)}
+                defaultChecked={Boolean(typedProduct.is_available)}
                 className="h-4 w-4 rounded border-stone-300"
               />
               <span className="text-sm font-medium text-stone-700">
