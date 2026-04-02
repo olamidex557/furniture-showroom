@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
+  RefreshControl,
   ScrollView,
   Text,
   View,
@@ -9,184 +11,249 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { MotiView } from "moti";
 import { useUser } from "@clerk/clerk-expo";
+import { MotiView } from "moti";
 import { supabase } from "../src/lib/supabase";
 import { COLORS } from "../src/constants/colors";
-import { sendInAppNotification } from "../src/lib/in-app-notifications";
-import AnimatedScreen from "../src/components/AnimatedScreen";
-import AnimatedCard from "../src/components/AnimatedCard";
+import { createAdminNotification } from "../src/lib/admin-notifications";
 
-type OrderItem = {
+type OrderRow = {
   id: string;
-  clerk_user_id: string | null;
   customer_name: string | null;
-  status: string;
-  delivery_method: string;
   phone: string | null;
   address: string | null;
+  delivery_method: "delivery" | "pickup";
   subtotal: number;
   delivery_fee: number;
   total: number;
+  status: "pending" | "processing" | "completed" | "cancelled";
   created_at: string;
+  cancelled_at?: string | null;
+  cancellation_reason?: string | null;
 };
 
-function formatCurrency(value: number) {
-  return `₦${Number(value || 0).toLocaleString()}`;
-}
+type OrderItemRow = {
+  id: string;
+  order_id: string;
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+};
 
-function formatDate(value: string) {
-  return new Date(value).toLocaleString();
-}
-
-function getStatusColors(status: string) {
-  switch (status.toLowerCase()) {
-    case "completed":
-      return {
-        background: "#DCFCE7",
-        text: "#166534",
-      };
-    case "processing":
-      return {
-        background: "#DBEAFE",
-        text: "#1D4ED8",
-      };
-    case "cancelled":
-      return {
-        background: "#FEE2E2",
-        text: "#B91C1C",
-      };
-    case "pending":
-    default:
-      return {
-        background: "#FEF3C7",
-        text: "#B45309",
-      };
-  }
-}
+type ProductRow = {
+  id: string;
+  stock: number;
+  is_available: boolean;
+};
 
 export default function OrdersScreen() {
   const router = useRouter();
   const { user, isLoaded, isSignedIn } = useUser();
 
-  const [orders, setOrders] = useState<OrderItem[]>([]);
+  const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  const lastStatusesRef = useRef<Record<string, string>>({});
+  const loadOrders = useCallback(async () => {
+    if (!isLoaded) return;
 
-  const loadOrders = useCallback(
-    async (showLoader = false) => {
-      if (!isLoaded) return;
+    if (!isSignedIn || !user) {
+      setOrders([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
 
-      if (!isSignedIn || !user) {
-        setOrders([]);
-        setLoading(false);
-        setRefreshing(false);
-        return;
+    try {
+      const { data, error } = await supabase
+        .from("orders")
+        .select(`
+          id,
+          customer_name,
+          phone,
+          address,
+          delivery_method,
+          subtotal,
+          delivery_fee,
+          total,
+          status,
+          created_at,
+          cancelled_at,
+          cancellation_reason
+        `)
+        .eq("clerk_user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        throw new Error(error.message);
       }
 
-      try {
-        if (showLoader) {
-          setLoading(true);
-        } else {
-          setRefreshing(true);
-        }
-
-        const { data, error } = await supabase
-          .from("orders")
-          .select(`
-            id,
-            clerk_user_id,
-            customer_name,
-            status,
-            delivery_method,
-            phone,
-            address,
-            subtotal,
-            delivery_fee,
-            total,
-            created_at
-          `)
-          .eq("clerk_user_id", user.id)
-          .order("created_at", { ascending: false });
-
-        if (error) {
-          throw new Error(error.message);
-        }
-
-        const nextOrders = (data ?? []) as OrderItem[];
-        setOrders(nextOrders);
-
-        const statusMap: Record<string, string> = {};
-        for (const order of nextOrders) {
-          statusMap[order.id] = order.status;
-        }
-        lastStatusesRef.current = statusMap;
-      } catch (error) {
-        console.log("Failed to load orders:", error);
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [isLoaded, isSignedIn, user]
-  );
+      setOrders((data ?? []) as OrderRow[]);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to load orders.";
+      Alert.alert("Orders", message);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [isLoaded, isSignedIn, user]);
 
   useEffect(() => {
-    loadOrders(true);
+    loadOrders();
   }, [loadOrders]);
 
-  useEffect(() => {
-    if (!isLoaded || !isSignedIn || !user) return;
+  const restoreStockForCancelledOrder = async (orderId: string) => {
+    const { data: orderItems, error: orderItemsError } = await supabase
+      .from("order_items")
+      .select("id, order_id, product_id, quantity, unit_price, line_total")
+      .eq("order_id", orderId);
 
-    const channel = supabase
-      .channel(`orders-realtime-${user.id}`)
-      .on(
-        "postgres_changes",
+    if (orderItemsError) {
+      throw new Error(orderItemsError.message);
+    }
+
+    const typedOrderItems = (orderItems ?? []) as OrderItemRow[];
+
+    for (const item of typedOrderItems) {
+      const { data: product, error: productError } = await supabase
+        .from("products")
+        .select("id, stock, is_available")
+        .eq("id", item.product_id)
+        .single();
+
+      if (productError) {
+        throw new Error(productError.message);
+      }
+
+      const typedProduct = product as ProductRow;
+      const nextStock =
+        Number(typedProduct.stock ?? 0) + Number(item.quantity ?? 0);
+
+      const { error: updateError } = await supabase
+        .from("products")
+        .update({
+          stock: nextStock,
+          is_available: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", item.product_id);
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+    }
+  };
+
+  const cancelOrder = async (order: OrderRow) => {
+    if (!user || !isSignedIn) {
+      Alert.alert("Sign in required", "Please sign in first.");
+      return;
+    }
+
+    if (order.status !== "pending") {
+      Alert.alert(
+        "Cannot cancel",
+        "Only pending orders can be cancelled."
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Cancel order",
+      "Are you sure you want to cancel this order?",
+      [
+        { text: "No", style: "cancel" },
         {
-          event: "*",
-          schema: "public",
-          table: "orders",
-          filter: `clerk_user_id=eq.${user.id}`,
-        },
-        async (payload) => {
-          const eventType = payload.eventType;
+          text: "Yes, cancel",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setCancellingId(order.id);
 
-          if (eventType === "UPDATE") {
-            const newRow = payload.new as OrderItem;
-            const oldStatus = lastStatusesRef.current[newRow.id];
-            const newStatus = newRow.status;
+              const { data: latestOrder, error: latestOrderError } = await supabase
+                .from("orders")
+                .select("id, status, customer_name, total")
+                .eq("id", order.id)
+                .single();
 
-            if (oldStatus && oldStatus !== newStatus) {
-              sendInAppNotification({
-                title: "Order Update",
-                body: `Your order #${newRow.id.slice(0, 8)} is now ${newStatus}.`,
-              });
+              if (latestOrderError) {
+                throw new Error(latestOrderError.message);
+              }
+
+              if (!latestOrder || latestOrder.status !== "pending") {
+                throw new Error(
+                  "This order can no longer be cancelled."
+                );
+              }
+
+              await restoreStockForCancelledOrder(order.id);
+
+              const { error: cancelError } = await supabase
+                .from("orders")
+                .update({
+                  status: "cancelled",
+                  cancelled_at: new Date().toISOString(),
+                  cancellation_reason: "Cancelled by customer",
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", order.id);
+
+              if (cancelError) {
+                throw new Error(cancelError.message);
+              }
+
+              try {
+                await createAdminNotification({
+                  title: "Order cancelled by customer",
+                  message: `${
+                    latestOrder.customer_name || "A customer"
+                  } cancelled an order worth ₦${Number(
+                    latestOrder.total ?? 0
+                  ).toLocaleString()}.`,
+                  type: "order_cancelled",
+                  entityType: "order",
+                  entityId: order.id,
+                });
+              } catch (error) {
+                console.log("Admin notification failed:", error);
+              }
+
+              setOrders((current) =>
+                current.map((item) =>
+                  item.id === order.id
+                    ? {
+                        ...item,
+                        status: "cancelled",
+                        cancelled_at: new Date().toISOString(),
+                        cancellation_reason: "Cancelled by customer",
+                      }
+                    : item
+                )
+              );
+
+              Alert.alert("Cancelled", "Your order has been cancelled.");
+            } catch (error) {
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : "Failed to cancel order.";
+              Alert.alert("Cancellation failed", message);
+            } finally {
+              setCancellingId(null);
             }
+          },
+        },
+      ]
+    );
+  };
 
-            lastStatusesRef.current[newRow.id] = newStatus;
-          }
-
-          if (eventType === "INSERT") {
-            const newRow = payload.new as OrderItem;
-            lastStatusesRef.current[newRow.id] = newRow.status;
-
-            sendInAppNotification({
-              title: "New Order",
-              body: `A new order #${newRow.id.slice(0, 8)} has been added to your history.`,
-            });
-          }
-
-          await loadOrders(false);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [isLoaded, isSignedIn, user, loadOrders]);
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadOrders();
+  };
 
   if (!isLoaded || loading) {
     return (
@@ -217,159 +284,20 @@ export default function OrdersScreen() {
   if (!isSignedIn || !user) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-        <AnimatedScreen>
+        <View
+          style={{
+            flex: 1,
+            padding: 20,
+            justifyContent: "center",
+          }}
+        >
           <View
             style={{
-              flex: 1,
-              padding: 20,
-              justifyContent: "center",
-            }}
-          >
-            <AnimatedCard
-              style={{
-                backgroundColor: COLORS.surface,
-                borderRadius: 24,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                padding: 22,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 26,
-                  fontWeight: "700",
-                  color: COLORS.textPrimary,
-                  marginBottom: 8,
-                }}
-              >
-                Sign in required
-              </Text>
-
-              <Text
-                style={{
-                  fontSize: 14,
-                  color: COLORS.textSecondary,
-                  lineHeight: 22,
-                  marginBottom: 18,
-                }}
-              >
-                Sign in to view your orders and receive live status updates.
-              </Text>
-
-              <Pressable
-                onPress={() => router.push("/sign-in" as any)}
-                style={{
-                  backgroundColor: COLORS.primary,
-                  borderRadius: 16,
-                  paddingVertical: 15,
-                  alignItems: "center",
-                }}
-              >
-                <Text
-                  style={{
-                    color: COLORS.white,
-                    fontWeight: "700",
-                    fontSize: 16,
-                  }}
-                >
-                  Sign In
-                </Text>
-              </Pressable>
-            </AnimatedCard>
-          </View>
-        </AnimatedScreen>
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
-      <AnimatedScreen>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
-        >
-          <MotiView
-            from={{ opacity: 0, translateY: -10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: "timing", duration: 350 }}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 18,
-            }}
-          >
-            <Pressable
-              onPress={() => router.back()}
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: 14,
-                backgroundColor: COLORS.surface,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Ionicons
-                name="chevron-back"
-                size={20}
-                color={COLORS.textPrimary}
-              />
-            </Pressable>
-
-            <Text
-              style={{
-                fontSize: 20,
-                fontWeight: "700",
-                color: COLORS.textPrimary,
-              }}
-            >
-              My Orders
-            </Text>
-
-            <Pressable
-              onPress={() => loadOrders(false)}
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: 14,
-                backgroundColor: COLORS.surface,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              {refreshing ? (
-                <ActivityIndicator size="small" color={COLORS.primaryDark} />
-              ) : (
-                <MotiView
-                  from={{ rotate: "0deg" }}
-                  animate={{ rotate: refreshing ? "180deg" : "0deg" }}
-                  transition={{ type: "timing", duration: 350 }}
-                >
-                  <Ionicons
-                    name="refresh-outline"
-                    size={20}
-                    color={COLORS.textPrimary}
-                  />
-                </MotiView>
-              )}
-            </Pressable>
-          </MotiView>
-
-          <AnimatedCard
-            delay={100}
-            style={{
               backgroundColor: COLORS.surface,
-              borderRadius: 22,
+              borderRadius: 24,
               borderWidth: 1,
               borderColor: COLORS.border,
-              padding: 18,
-              marginBottom: 18,
+              padding: 22,
             }}
           >
             <Text
@@ -380,117 +308,211 @@ export default function OrdersScreen() {
                 marginBottom: 8,
               }}
             >
-              Your Orders
+              Sign in required
             </Text>
 
             <Text
               style={{
                 fontSize: 14,
-                lineHeight: 22,
                 color: COLORS.textSecondary,
+                lineHeight: 22,
+                marginBottom: 18,
               }}
             >
-              This page updates automatically when your order status changes.
+              You need to sign in before viewing your orders.
             </Text>
-          </AnimatedCard>
 
-          {orders.length === 0 ? (
-            <AnimatedCard
-              delay={160}
+            <Pressable
+              onPress={() => router.push("/sign-in" as any)}
               style={{
-                backgroundColor: COLORS.surface,
-                borderRadius: 22,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-                padding: 22,
+                backgroundColor: COLORS.primary,
+                borderRadius: 16,
+                paddingVertical: 15,
                 alignItems: "center",
               }}
             >
-              <MotiView
-                from={{ scale: 0.9, opacity: 0.4 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{
-                  type: "timing",
-                  duration: 500,
-                  loop: true,
-                }}
-              >
-                <Ionicons
-                  name="cube-outline"
-                  size={42}
-                  color={COLORS.textSecondary}
-                />
-              </MotiView>
-
               <Text
                 style={{
-                  fontSize: 20,
+                  color: COLORS.white,
                   fontWeight: "700",
-                  color: COLORS.textPrimary,
-                  marginTop: 12,
-                  marginBottom: 6,
+                  fontSize: 16,
                 }}
               >
-                No orders yet
+                Sign In
               </Text>
+            </Pressable>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <MotiView
+          from={{ opacity: 0, translateY: -8 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: "timing", duration: 350 }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 18,
+          }}
+        >
+          <View>
+            <Text
+              style={{
+                fontSize: 28,
+                fontWeight: "700",
+                color: COLORS.textPrimary,
+                marginBottom: 6,
+              }}
+            >
+              My Orders
+            </Text>
+
+            <Text
+              style={{
+                fontSize: 14,
+                color: COLORS.textSecondary,
+              }}
+            >
+              Track and manage your orders
+            </Text>
+          </View>
+
+          <Pressable
+            onPress={() => router.back()}
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 14,
+              backgroundColor: COLORS.surface,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons
+              name="chevron-back"
+              size={20}
+              color={COLORS.textPrimary}
+            />
+          </Pressable>
+        </MotiView>
+
+        {orders.length === 0 ? (
+          <View
+            style={{
+              backgroundColor: COLORS.surface,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              padding: 24,
+              alignItems: "center",
+            }}
+          >
+            <Ionicons
+              name="cube-outline"
+              size={46}
+              color={COLORS.textSecondary}
+            />
+
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: "700",
+                color: COLORS.textPrimary,
+                marginTop: 12,
+                marginBottom: 6,
+              }}
+            >
+              No orders yet
+            </Text>
+
+            <Text
+              style={{
+                fontSize: 14,
+                color: COLORS.textSecondary,
+                textAlign: "center",
+                lineHeight: 22,
+                marginBottom: 18,
+              }}
+            >
+              Your placed orders will appear here.
+            </Text>
+
+            <Pressable
+              onPress={() => router.push("/(tabs)" as any)}
+              style={{
+                backgroundColor: COLORS.primary,
+                borderRadius: 16,
+                paddingHorizontal: 18,
+                paddingVertical: 13,
+              }}
+            >
               <Text
                 style={{
-                  fontSize: 14,
-                  color: COLORS.textSecondary,
-                  textAlign: "center",
-                  lineHeight: 22,
+                  color: COLORS.white,
+                  fontWeight: "700",
                 }}
               >
-                Once you place an order, it will appear here with live updates.
+                Start Shopping
               </Text>
-            </AnimatedCard>
-          ) : (
-            orders.map((order, index) => {
-              const statusColors = getStatusColors(order.status);
+            </Pressable>
+          </View>
+        ) : (
+          <View style={{ gap: 14 }}>
+            {orders.map((order, index) => {
+              const isPending = order.status === "pending";
+              const isCancelling = cancellingId === order.id;
 
               return (
-                <AnimatedCard
+                <MotiView
                   key={order.id}
-                  delay={180 + index * 70}
+                  from={{ opacity: 0, translateY: 16, scale: 0.98 }}
+                  animate={{ opacity: 1, translateY: 0, scale: 1 }}
+                  transition={{
+                    type: "timing",
+                    duration: 320,
+                    delay: index * 60,
+                  }}
                   style={{
                     backgroundColor: COLORS.surface,
                     borderRadius: 22,
                     borderWidth: 1,
                     borderColor: COLORS.border,
                     padding: 18,
-                    marginBottom: 14,
                   }}
                 >
                   <View
                     style={{
                       flexDirection: "row",
-                      alignItems: "flex-start",
                       justifyContent: "space-between",
-                      marginBottom: 14,
+                      alignItems: "flex-start",
                       gap: 12,
+                      marginBottom: 10,
                     }}
                   >
                     <View style={{ flex: 1 }}>
                       <Text
                         style={{
-                          fontSize: 17,
+                          fontSize: 16,
                           fontWeight: "700",
                           color: COLORS.textPrimary,
                           marginBottom: 4,
                         }}
                       >
-                        Order #{order.id.slice(0, 8)}
-                      </Text>
-
-                      <Text
-                        style={{
-                          fontSize: 13,
-                          color: COLORS.textSecondary,
-                          marginBottom: 3,
-                        }}
-                      >
-                        {order.customer_name ?? "Customer"}
+                        Order #{order.id.slice(0, 8).toUpperCase()}
                       </Text>
 
                       <Text
@@ -499,93 +521,106 @@ export default function OrdersScreen() {
                           color: COLORS.textSecondary,
                         }}
                       >
-                        {formatDate(order.created_at)}
+                        {new Date(order.created_at).toLocaleString()}
                       </Text>
                     </View>
 
-                    <MotiView
-                      from={{ scale: 0.92, opacity: 0.7 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ type: "timing", duration: 260 }}
+                    <StatusBadge status={order.status} />
+                  </View>
+
+                  <InfoRow label="Total" value={`₦${Number(order.total).toLocaleString()}`} />
+                  <InfoRow
+                    label="Delivery"
+                    value={order.delivery_method === "pickup" ? "Pickup" : "Delivery"}
+                  />
+                  <InfoRow
+                    label="Address"
+                    value={order.address || "No address provided"}
+                  />
+
+                  {order.status === "cancelled" && order.cancellation_reason ? (
+                    <View
                       style={{
-                        backgroundColor: statusColors.background,
-                        paddingHorizontal: 12,
-                        paddingVertical: 7,
-                        borderRadius: 999,
+                        marginTop: 10,
+                        backgroundColor: "#FEF2F2",
+                        borderRadius: 14,
+                        padding: 12,
                       }}
                     >
                       <Text
                         style={{
-                          color: statusColors.text,
-                          fontWeight: "700",
-                          fontSize: 12,
-                          textTransform: "capitalize",
+                          fontSize: 13,
+                          color: "#991B1B",
+                          fontWeight: "600",
                         }}
                       >
-                        {order.status}
+                        {order.cancellation_reason}
                       </Text>
-                    </MotiView>
-                  </View>
-
-                  <View
-                    style={{
-                      backgroundColor: COLORS.accent,
-                      borderRadius: 16,
-                      padding: 14,
-                      marginBottom: 14,
-                    }}
-                  >
-                    <InfoRow label="Delivery Method" value={order.delivery_method} />
-                    <InfoRow label="Phone" value={order.phone || "Not provided"} />
-                    <InfoRow
-                      label="Address"
-                      value={
-                        order.delivery_method === "delivery"
-                          ? order.address || "Not provided"
-                          : "Customer pickup"
-                      }
-                      noMargin
-                    />
-                  </View>
+                    </View>
+                  ) : null}
 
                   <View
                     style={{
                       flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
+                      gap: 10,
+                      marginTop: 14,
                     }}
                   >
-                    <Text
+                    <Pressable
+                      onPress={() => router.push(`/orders/${order.id}` as any)}
                       style={{
-                        fontSize: 14,
-                        color: COLORS.textSecondary,
+                        flex: 1,
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        borderColor: COLORS.border,
+                        paddingVertical: 13,
+                        alignItems: "center",
+                        backgroundColor: COLORS.background,
                       }}
-                    >
-                      Total
-                    </Text>
-
-                    <MotiView
-                      from={{ opacity: 0.7, scale: 0.96 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ type: "timing", duration: 280 }}
                     >
                       <Text
                         style={{
-                          fontSize: 18,
-                          fontWeight: "800",
-                          color: COLORS.primaryDark,
+                          color: COLORS.textPrimary,
+                          fontWeight: "700",
                         }}
                       >
-                        {formatCurrency(order.total)}
+                        View Details
                       </Text>
-                    </MotiView>
+                    </Pressable>
+
+                    <Pressable
+                      disabled={!isPending || isCancelling}
+                      onPress={() => cancelOrder(order)}
+                      style={{
+                        flex: 1,
+                        borderRadius: 14,
+                        paddingVertical: 13,
+                        alignItems: "center",
+                        backgroundColor:
+                          !isPending || isCancelling ? COLORS.border : "#FEE2E2",
+                      }}
+                    >
+                      {isCancelling ? (
+                        <ActivityIndicator color="#B91C1C" />
+                      ) : (
+                        <Text
+                          style={{
+                            color:
+                              !isPending ? COLORS.textSecondary : "#B91C1C",
+                            fontWeight: "700",
+                          }}
+                        >
+                          {isPending ? "Cancel Order" : "Cannot Cancel"}
+                        </Text>
+                      )}
+                    </Pressable>
                   </View>
-                </AnimatedCard>
+                </MotiView>
               );
-            })
-          )}
-        </ScrollView>
-      </AnimatedScreen>
+            })}
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -593,25 +628,23 @@ export default function OrdersScreen() {
 function InfoRow({
   label,
   value,
-  noMargin,
 }: {
   label: string;
   value: string;
-  noMargin?: boolean;
 }) {
   return (
     <View
       style={{
-        marginBottom: noMargin ? 0 : 10,
+        flexDirection: "row",
+        justifyContent: "space-between",
+        gap: 12,
+        marginBottom: 8,
       }}
     >
       <Text
         style={{
-          fontSize: 12,
+          fontSize: 14,
           color: COLORS.textSecondary,
-          marginBottom: 2,
-          textTransform: "uppercase",
-          letterSpacing: 0.3,
         }}
       >
         {label}
@@ -619,14 +652,64 @@ function InfoRow({
 
       <Text
         style={{
+          flex: 1,
+          textAlign: "right",
           fontSize: 14,
           fontWeight: "600",
           color: COLORS.textPrimary,
-          textTransform:
-            label === "Delivery Method" ? "capitalize" : "none",
         }}
       >
         {value}
+      </Text>
+    </View>
+  );
+}
+
+function StatusBadge({
+  status,
+}: {
+  status: "pending" | "processing" | "completed" | "cancelled";
+}) {
+  const styles = {
+    pending: {
+      bg: "#FEF3C7",
+      text: "#92400E",
+      label: "Pending",
+    },
+    processing: {
+      bg: "#DBEAFE",
+      text: "#1D4ED8",
+      label: "Processing",
+    },
+    completed: {
+      bg: "#DCFCE7",
+      text: "#166534",
+      label: "Completed",
+    },
+    cancelled: {
+      bg: "#FEE2E2",
+      text: "#B91C1C",
+      label: "Cancelled",
+    },
+  }[status];
+
+  return (
+    <View
+      style={{
+        backgroundColor: styles.bg,
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+      }}
+    >
+      <Text
+        style={{
+          color: styles.text,
+          fontWeight: "700",
+          fontSize: 12,
+        }}
+      >
+        {styles.label}
       </Text>
     </View>
   );
