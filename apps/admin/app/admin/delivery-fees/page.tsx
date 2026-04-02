@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { supabaseAdmin } from "../../../lib/supabase-admin";
+import {
+  supabaseAdmin,
+  supabaseAdminConfig,
+} from "../../../lib/supabase-admin";
 
 async function createDeliveryZone(formData: FormData) {
   "use server";
@@ -16,16 +19,22 @@ async function createDeliveryZone(formData: FormData) {
     redirect("/admin/delivery-fees?error=Fee must be 0 or more");
   }
 
-  const { error } = await supabaseAdmin.from("delivery_zones").insert({
-    name,
-    fee,
-    is_active: true,
-  });
+  try {
+    const { error } = await supabaseAdmin.from("delivery_zones").insert({
+      name,
+      fee,
+      is_active: true,
+    });
 
-  if (error) {
-    redirect(
-      `/admin/delivery-fees?error=${encodeURIComponent(error.message)}`
-    );
+    if (error) {
+      redirect(
+        `/admin/delivery-fees?error=${encodeURIComponent(error.message)}`
+      );
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to create delivery zone";
+    redirect(`/admin/delivery-fees?error=${encodeURIComponent(message)}`);
   }
 
   revalidatePath("/admin");
@@ -53,20 +62,26 @@ async function updateDeliveryZone(formData: FormData) {
     redirect("/admin/delivery-fees?error=Fee must be 0 or more");
   }
 
-  const { error } = await supabaseAdmin
-    .from("delivery_zones")
-    .update({
-      name,
-      fee,
-      is_active: isActive,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
+  try {
+    const { error } = await supabaseAdmin
+      .from("delivery_zones")
+      .update({
+        name,
+        fee,
+        is_active: isActive,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
 
-  if (error) {
-    redirect(
-      `/admin/delivery-fees?error=${encodeURIComponent(error.message)}`
-    );
+    if (error) {
+      redirect(
+        `/admin/delivery-fees?error=${encodeURIComponent(error.message)}`
+      );
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to update delivery zone";
+    redirect(`/admin/delivery-fees?error=${encodeURIComponent(message)}`);
   }
 
   revalidatePath("/admin");
@@ -83,21 +98,36 @@ async function deleteDeliveryZone(formData: FormData) {
     redirect("/admin/delivery-fees?error=Zone ID is required");
   }
 
-  const { error } = await supabaseAdmin
-    .from("delivery_zones")
-    .delete()
-    .eq("id", id);
+  try {
+    const { error } = await supabaseAdmin
+      .from("delivery_zones")
+      .delete()
+      .eq("id", id);
 
-  if (error) {
-    redirect(
-      `/admin/delivery-fees?error=${encodeURIComponent(error.message)}`
-    );
+    if (error) {
+      redirect(
+        `/admin/delivery-fees?error=${encodeURIComponent(error.message)}`
+      );
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to delete delivery zone";
+    redirect(`/admin/delivery-fees?error=${encodeURIComponent(message)}`);
   }
 
   revalidatePath("/admin");
   revalidatePath("/admin/delivery-fees");
   redirect("/admin/delivery-fees");
 }
+
+type DeliveryZoneRow = {
+  id: string;
+  name: string;
+  fee: number | string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
 
 export default async function DeliveryFeesPage({
   searchParams,
@@ -107,13 +137,33 @@ export default async function DeliveryFeesPage({
   const query = (await searchParams) ?? {};
   const errorMessage = query.error;
 
-  const { data: zones, error } = await supabaseAdmin
-    .from("delivery_zones")
-    .select("id, name, fee, is_active, created_at, updated_at")
-    .order("name", { ascending: true });
+  let zones: DeliveryZoneRow[] = [];
+  let loadError = "";
+  let debugMessage = "";
 
-  if (error) {
-    throw new Error(error.message);
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("delivery_zones")
+      .select("id, name, fee, is_active, created_at, updated_at")
+      .order("name", { ascending: true });
+
+    if (error) {
+      loadError = error.message;
+    } else {
+      zones = (data ?? []) as DeliveryZoneRow[];
+    }
+  } catch (error) {
+    loadError =
+      error instanceof Error ? error.message : "Unable to load delivery zones.";
+    debugMessage = JSON.stringify(
+      {
+        hasUrl: supabaseAdminConfig.hasUrl,
+        hasServiceRoleKey: supabaseAdminConfig.hasServiceRoleKey,
+        urlPreview: supabaseAdminConfig.urlPreview,
+      },
+      null,
+      2
+    );
   }
 
   return (
@@ -133,6 +183,19 @@ export default async function DeliveryFeesPage({
           <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
             {errorMessage}
           </div>
+        ) : null}
+
+        {loadError ? (
+          <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <div className="font-semibold">Failed to load delivery zones</div>
+            <div className="mt-1">{loadError}</div>
+          </div>
+        ) : null}
+
+        {debugMessage ? (
+          <pre className="mb-5 overflow-auto rounded-2xl border border-stone-200 bg-stone-900 p-4 text-xs text-stone-100">
+            {debugMessage}
+          </pre>
         ) : null}
 
         <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
@@ -186,17 +249,19 @@ export default async function DeliveryFeesPage({
               </div>
 
               <div className="rounded-full bg-stone-100 px-4 py-2 text-sm font-semibold text-stone-700">
-                {zones?.length ?? 0} zone(s)
+                {zones.length} zone(s)
               </div>
             </div>
 
             <div className="space-y-4">
-              {(zones ?? []).length === 0 ? (
+              {zones.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">
-                  No delivery zones added yet.
+                  {loadError
+                    ? "Delivery zones could not be loaded."
+                    : "No delivery zones added yet."}
                 </div>
               ) : (
-                zones?.map((zone) => (
+                zones.map((zone) => (
                   <form
                     key={zone.id}
                     action={updateDeliveryZone}

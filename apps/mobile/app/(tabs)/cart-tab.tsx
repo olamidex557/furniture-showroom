@@ -1,5 +1,12 @@
 import { useEffect } from "react";
-import { Pressable, ScrollView, Text, View, Image, Alert } from "react-native";
+import {
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,29 +25,42 @@ export default function CartTabScreen() {
     syncStockSnapshot,
   } = useCart();
 
-  const subtotal = items.reduce(
-    (sum, item) => sum + Number(item.price) * Number(item.quantity),
-    0
-  );
+  const cartItems = items;
+
+  const subtotal = cartItems.reduce((sum, item) => {
+    return sum + Number(item.price) * Number(item.quantity);
+  }, 0);
+
+  const itemCount = cartItems.reduce((sum, item) => {
+    return sum + Number(item.quantity);
+  }, 0);
 
   useEffect(() => {
     const syncCartStock = async () => {
-      if (items.length === 0) return;
+      if (cartItems.length === 0) return;
 
-      const ids = items.map((item) => item.productId);
+      try {
+        const ids = cartItems.map((item) => item.productId);
 
-      const { data, error } = await supabase
-        .from("products")
-        .select("id, stock, is_available")
-        .in("id", ids);
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, stock, is_available")
+          .in("id", ids);
 
-      if (!error && data) {
-        syncStockSnapshot(data);
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        if (data) {
+          syncStockSnapshot(data);
+        }
+      } catch (error) {
+        console.log("Failed to sync cart stock:", error);
       }
     };
 
     syncCartStock();
-  }, [items.length, syncStockSnapshot]);
+  }, [cartItems.length, syncStockSnapshot]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
@@ -74,11 +94,11 @@ export default function CartTabScreen() {
               color: COLORS.textSecondary,
             }}
           >
-            Review your selected items before checkout
+            {itemCount} item{itemCount === 1 ? "" : "s"} in your cart
           </Text>
         </MotiView>
 
-        {items.length === 0 ? (
+        {cartItems.length === 0 ? (
           <MotiView
             from={{ opacity: 0, translateY: 18, scale: 0.96 }}
             animate={{ opacity: 1, translateY: 0, scale: 1 }}
@@ -143,9 +163,10 @@ export default function CartTabScreen() {
           </MotiView>
         ) : (
           <>
-            {items.map((item, index) => {
-              const stock = Number(item.maxStock ?? 0);
-              const inStock = Boolean(item.isAvailable ?? true) && stock > 0;
+            {cartItems.map((item, index) => {
+              const stock = Number(item.maxStock ?? item.stock ?? 0);
+              const inStock = Boolean(item.isAvailable) && stock > 0;
+              const imageUri = item.image ?? item.imageUrl ?? null;
 
               return (
                 <MotiView
@@ -183,9 +204,9 @@ export default function CartTabScreen() {
                         justifyContent: "center",
                       }}
                     >
-                      {item.image ? (
+                      {imageUri ? (
                         <Image
-                          source={{ uri: item.image }}
+                          source={{ uri: imageUri }}
                           style={{ width: "100%", height: "100%" }}
                           resizeMode="cover"
                         />
@@ -289,6 +310,7 @@ export default function CartTabScreen() {
                           <Pressable
                             onPress={() => {
                               const result = increaseQuantity(item.productId);
+
                               if (!result.ok) {
                                 Alert.alert(
                                   "Stock Limit",

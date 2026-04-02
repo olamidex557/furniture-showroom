@@ -11,6 +11,25 @@ import type {
 
 const CartContext = createContext<CartContextValue | undefined>(undefined);
 
+function normalizeCartItem(input: AddToCartInput): CartItem {
+  const resolvedImage = input.image ?? input.imageUrl ?? null;
+  const resolvedStock = Number(input.maxStock ?? input.stock ?? 0);
+
+  return {
+    productId: input.productId,
+    id: input.id ?? input.productId,
+    name: input.name,
+    category: input.category ?? null,
+    price: Number(input.price),
+    quantity: Math.max(1, Number(input.quantity ?? 1)),
+    image: resolvedImage,
+    imageUrl: resolvedImage,
+    maxStock: resolvedStock,
+    stock: resolvedStock,
+    isAvailable: input.isAvailable ?? true,
+  };
+}
+
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
 
@@ -21,10 +40,15 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     );
   }, [items]);
 
-  const addItem = (item: AddToCartInput): AddToCartResult => {
-    const incomingQty = Math.max(1, Number(item.quantity ?? 1));
-    const maxStock = Number(item.maxStock ?? 0);
-    const isAvailable = item.isAvailable ?? true;
+  const itemCount = useMemo(() => {
+    return items.reduce((sum, item) => sum + Number(item.quantity), 0);
+  }, [items]);
+
+  const addItem = (input: AddToCartInput): AddToCartResult => {
+    const normalized = normalizeCartItem(input);
+    const incomingQty = normalized.quantity;
+    const maxStock = Number(normalized.maxStock ?? 0);
+    const isAvailable = normalized.isAvailable ?? true;
 
     if (!isAvailable || maxStock <= 0) {
       return { ok: false, reason: "This product is out of stock." };
@@ -34,7 +58,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
     setItems((current) => {
       const existing = current.find(
-        (cartItem) => cartItem.productId === item.productId
+        (cartItem) => cartItem.productId === normalized.productId
       );
 
       if (!existing) {
@@ -46,18 +70,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           return current;
         }
 
-        return [
-          ...current,
-          {
-            productId: item.productId,
-            name: item.name,
-            price: Number(item.price),
-            quantity: incomingQty,
-            image: item.image ?? null,
-            maxStock,
-            isAvailable,
-          },
-        ];
+        return [...current, normalized];
       }
 
       const resolvedMaxStock = Number(existing.maxStock ?? maxStock);
@@ -72,12 +85,16 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       }
 
       return current.map((cartItem) =>
-        cartItem.productId === item.productId
+        cartItem.productId === normalized.productId
           ? {
               ...cartItem,
               quantity: nextQty,
+              image: normalized.image ?? cartItem.image ?? null,
+              imageUrl: normalized.imageUrl ?? cartItem.imageUrl ?? null,
               maxStock: resolvedMaxStock,
+              stock: resolvedMaxStock,
               isAvailable,
+              category: normalized.category ?? cartItem.category ?? null,
             }
           : cartItem
       );
@@ -93,7 +110,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       current.map((item) => {
         if (item.productId !== productId) return item;
 
-        const maxStock = Number(item.maxStock ?? 0);
+        const maxStock = Number(item.maxStock ?? item.stock ?? 0);
 
         if (!item.isAvailable || maxStock <= 0) {
           result = { ok: false, reason: "This product is out of stock." };
@@ -160,6 +177,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
             return {
               ...item,
               maxStock: 0,
+              stock: 0,
               isAvailable: false,
               quantity: 0,
             };
@@ -168,6 +186,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           return {
             ...item,
             maxStock: nextStock,
+            stock: nextStock,
             isAvailable,
             quantity: Math.min(item.quantity, nextStock),
           };
@@ -190,6 +209,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
             return {
               ...item,
               maxStock: 0,
+              stock: 0,
               isAvailable: false,
               quantity: 0,
             };
@@ -198,6 +218,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           return {
             ...item,
             maxStock: nextStock,
+            stock: nextStock,
             isAvailable: nextAvailable,
             quantity: Math.min(item.quantity, nextStock),
           };
@@ -208,13 +229,26 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const value: CartContextValue = {
     items,
+    cartItems: items,
+
     subtotal,
+    itemCount,
+
     addItem,
+    addToCart: addItem,
+
     increaseQuantity,
+    incrementQuantity: increaseQuantity,
+
     decreaseQuantity,
+    decrementQuantity: decreaseQuantity,
+
     removeItem,
+    removeFromCart: removeItem,
+
     clearCart,
     getItemQuantity,
+
     updateItemStock,
     syncStockSnapshot,
   };
