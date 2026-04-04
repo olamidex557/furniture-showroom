@@ -37,6 +37,19 @@ function getStatusBadgeClass(status: string) {
   }
 }
 
+function formatOrderDate(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).format(new Date(value));
+}
+
 export default function AdminOrdersClient({
   orders,
   updateOrderStatus,
@@ -215,7 +228,7 @@ export default function AdminOrdersClient({
                           Order #{order.id.slice(0, 8)}
                         </p>
                         <p className="mt-1 text-sm text-stone-500">
-                          {new Date(order.created_at).toLocaleString()}
+                          {formatOrderDate(order.created_at)}
                         </p>
                       </div>
 

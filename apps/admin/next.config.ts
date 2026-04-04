@@ -1,14 +1,7 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "*.supabase.co",
-      },
-    ],
-  },
+  allowedDevOrigins: ['172.20.10.5'],
 };
 
 export default nextConfig;
