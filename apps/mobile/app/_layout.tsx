@@ -19,7 +19,7 @@ function NotificationBootstrap() {
         };
 
         if (data?.screen === "order" && data.orderId) {
-          router.push(`/orders/${data.orderId}` as any);
+          router.push(`/order/${data.orderId}` as any);
         }
       }
     );

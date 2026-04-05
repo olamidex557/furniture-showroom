@@ -567,7 +567,7 @@ export default function OrdersScreen() {
                     }}
                   >
                     <Pressable
-                      onPress={() => router.push(`/orders/${order.id}` as any)}
+                      onPress={() => router.push(`/order/${order.id}` as any)}
                       style={{
                         flex: 1,
                         borderRadius: 14,
