@@ -11,11 +11,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuth, useUser } from "@clerk/clerk-expo";
 import { MotiView } from "moti";
+
 import { supabase } from "../src/lib/supabase";
 import { COLORS } from "../src/constants/colors";
-import { createAdminNotification } from "../src/lib/admin-notifications";
+import { cancelOrderViaAdminApi } from "../src/lib/api/cancel-order";
 
 type OrderRow = {
   id: string;
@@ -32,24 +33,41 @@ type OrderRow = {
   cancellation_reason?: string | null;
 };
 
-type OrderItemRow = {
-  id: string;
-  order_id: string;
-  product_id: string;
-  quantity: number;
-  unit_price: number;
-  line_total: number;
-};
+function formatCurrency(value: number | null | undefined) {
+  return `₦${Number(value ?? 0).toLocaleString()}`;
+}
 
-type ProductRow = {
-  id: string;
-  stock: number;
-  is_available: boolean;
-};
+function formatOrderDate(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function isAlreadyCancelledMessage(message: string) {
+  const value = message.toLowerCase();
+
+  return (
+    value.includes("already cancelled") ||
+    value.includes("already canceled")
+  );
+}
 
 export default function OrdersScreen() {
   const router = useRouter();
   const { user, isLoaded, isSignedIn } = useUser();
+  const { getToken } = useAuth();
 
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,48 +123,6 @@ export default function OrdersScreen() {
     loadOrders();
   }, [loadOrders]);
 
-  const restoreStockForCancelledOrder = async (orderId: string) => {
-    const { data: orderItems, error: orderItemsError } = await supabase
-      .from("order_items")
-      .select("id, order_id, product_id, quantity, unit_price, line_total")
-      .eq("order_id", orderId);
-
-    if (orderItemsError) {
-      throw new Error(orderItemsError.message);
-    }
-
-    const typedOrderItems = (orderItems ?? []) as OrderItemRow[];
-
-    for (const item of typedOrderItems) {
-      const { data: product, error: productError } = await supabase
-        .from("products")
-        .select("id, stock, is_available")
-        .eq("id", item.product_id)
-        .single();
-
-      if (productError) {
-        throw new Error(productError.message);
-      }
-
-      const typedProduct = product as ProductRow;
-      const nextStock =
-        Number(typedProduct.stock ?? 0) + Number(item.quantity ?? 0);
-
-      const { error: updateError } = await supabase
-        .from("products")
-        .update({
-          stock: nextStock,
-          is_available: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", item.product_id);
-
-      if (updateError) {
-        throw new Error(updateError.message);
-      }
-    }
-  };
-
   const cancelOrder = async (order: OrderRow) => {
     if (!user || !isSignedIn) {
       Alert.alert("Sign in required", "Please sign in first.");
@@ -154,100 +130,49 @@ export default function OrdersScreen() {
     }
 
     if (order.status !== "pending") {
-      Alert.alert(
-        "Cannot cancel",
-        "Only pending orders can be cancelled."
-      );
+      Alert.alert("Cannot cancel", "Only pending orders can be cancelled.");
       return;
     }
 
-    Alert.alert(
-      "Cancel order",
-      "Are you sure you want to cancel this order?",
-      [
-        { text: "No", style: "cancel" },
-        {
-          text: "Yes, cancel",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setCancellingId(order.id);
+    Alert.alert("Cancel order", "Are you sure you want to cancel this order?", [
+      { text: "No", style: "cancel" },
+      {
+        text: "Yes, cancel",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            setCancellingId(order.id);
 
-              const { data: latestOrder, error: latestOrderError } = await supabase
-                .from("orders")
-                .select("id, status, customer_name, total")
-                .eq("id", order.id)
-                .single();
+            await cancelOrderViaAdminApi({
+              orderId: order.id,
+              getToken,
+            });
 
-              if (latestOrderError) {
-                throw new Error(latestOrderError.message);
-              }
+            await loadOrders();
 
-              if (!latestOrder || latestOrder.status !== "pending") {
-                throw new Error(
-                  "This order can no longer be cancelled."
-                );
-              }
+            Alert.alert("Cancelled", "Your order has been cancelled.");
+          } catch (error) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Failed to cancel order.";
 
-              await restoreStockForCancelledOrder(order.id);
-
-              const { error: cancelError } = await supabase
-                .from("orders")
-                .update({
-                  status: "cancelled",
-                  cancelled_at: new Date().toISOString(),
-                  cancellation_reason: "Cancelled by customer",
-                  updated_at: new Date().toISOString(),
-                })
-                .eq("id", order.id);
-
-              if (cancelError) {
-                throw new Error(cancelError.message);
-              }
-
-              try {
-                await createAdminNotification({
-                  title: "Order cancelled by customer",
-                  message: `${
-                    latestOrder.customer_name || "A customer"
-                  } cancelled an order worth ₦${Number(
-                    latestOrder.total ?? 0
-                  ).toLocaleString()}.`,
-                  type: "order_cancelled",
-                  entityType: "order",
-                  entityId: order.id,
-                });
-              } catch (error) {
-                console.log("Admin notification failed:", error);
-              }
-
-              setOrders((current) =>
-                current.map((item) =>
-                  item.id === order.id
-                    ? {
-                        ...item,
-                        status: "cancelled",
-                        cancelled_at: new Date().toISOString(),
-                        cancellation_reason: "Cancelled by customer",
-                      }
-                    : item
-                )
+            if (isAlreadyCancelledMessage(message)) {
+              await loadOrders();
+              Alert.alert(
+                "Updated",
+                "This order was already cancelled. Your orders list has been refreshed."
               );
-
-              Alert.alert("Cancelled", "Your order has been cancelled.");
-            } catch (error) {
-              const message =
-                error instanceof Error
-                  ? error.message
-                  : "Failed to cancel order.";
-              Alert.alert("Cancellation failed", message);
-            } finally {
-              setCancellingId(null);
+              return;
             }
-          },
+
+            Alert.alert("Cancellation failed", message);
+          } finally {
+            setCancellingId(null);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const onRefresh = () => {
@@ -521,21 +446,31 @@ export default function OrdersScreen() {
                           color: COLORS.textSecondary,
                         }}
                       >
-                        {new Date(order.created_at).toLocaleString()}
+                        {formatOrderDate(order.created_at)}
                       </Text>
                     </View>
 
                     <StatusBadge status={order.status} />
                   </View>
 
-                  <InfoRow label="Total" value={`₦${Number(order.total).toLocaleString()}`} />
+                  <InfoRow label="Total" value={formatCurrency(order.total)} />
+
                   <InfoRow
                     label="Delivery"
-                    value={order.delivery_method === "pickup" ? "Pickup" : "Delivery"}
+                    value={
+                      order.delivery_method === "pickup"
+                        ? "Pickup"
+                        : "Delivery"
+                    }
                   />
+
                   <InfoRow
                     label="Address"
-                    value={order.address || "No address provided"}
+                    value={
+                      order.delivery_method === "pickup"
+                        ? "Customer pickup"
+                        : order.address || "No address provided"
+                    }
                   />
 
                   {order.status === "cancelled" && order.cancellation_reason ? (
@@ -556,6 +491,18 @@ export default function OrdersScreen() {
                       >
                         {order.cancellation_reason}
                       </Text>
+
+                      {order.cancelled_at ? (
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            color: "#991B1B",
+                            marginTop: 4,
+                          }}
+                        >
+                          Cancelled on {formatOrderDate(order.cancelled_at)}
+                        </Text>
+                      ) : null}
                     </View>
                   ) : null}
 
@@ -567,7 +514,12 @@ export default function OrdersScreen() {
                     }}
                   >
                     <Pressable
-                      onPress={() => router.push(`/order/${order.id}` as any)}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/order/[id]",
+                          params: { id: order.id },
+                        })
+                      }
                       style={{
                         flex: 1,
                         borderRadius: 14,

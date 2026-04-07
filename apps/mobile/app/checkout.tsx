@@ -26,6 +26,7 @@ import {
   fetchActiveDeliveryZones,
   type DeliveryZone,
 } from "../src/lib/delivery-zones";
+import { saveDeliveryAddress } from "../src/lib/api/save-delivery-address";
 
 type DeliveryMethod = "delivery" | "pickup";
 
@@ -336,21 +337,17 @@ export default function CheckoutScreen() {
       }
 
       try {
-        await supabase.from("profiles").upsert(
-          {
-            clerk_user_id: user.id,
+        if (deliveryMethod === "delivery" && selectedZone) {
+          await saveDeliveryAddress({
+            clerkUserId: user.id,
             email: user.primaryEmailAddress?.emailAddress ?? null,
-            full_name: dto.customerName,
+            fullName: dto.customerName,
             phone: dto.phone,
-            delivery_zone:
-              deliveryMethod === "delivery" ? selectedZone?.name ?? null : null,
-            street_address:
-              deliveryMethod === "delivery" ? streetAddress.trim() : null,
-            landmark: deliveryMethod === "delivery" ? landmark.trim() : null,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "clerk_user_id" }
-        );
+            deliveryZone: selectedZone.name,
+            streetAddress: streetAddress.trim(),
+            landmark: landmark.trim() || null,
+          });
+        }
       } catch (error) {
         console.log("Profile save skipped:", error);
       }

@@ -13,6 +13,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { MotiView } from "moti";
 import { useUser } from "@clerk/clerk-expo";
+
 import { supabase } from "../src/lib/supabase";
 import { COLORS } from "../src/constants/colors";
 import AnimatedScreen from "../src/components/AnimatedScreen";
@@ -21,6 +22,7 @@ import {
   fetchActiveDeliveryZones,
   type DeliveryZone,
 } from "../src/lib/delivery-zones";
+import { saveDeliveryAddress } from "../src/lib/api/save-delivery-address";
 
 type ProfileRow = {
   full_name: string | null;
@@ -135,26 +137,18 @@ export default function DeliveryAddressScreen() {
     try {
       setSaving(true);
 
-      const { error } = await supabase.from("profiles").upsert(
-        {
-          clerk_user_id: user.id,
-          email: user.primaryEmailAddress?.emailAddress ?? null,
-          full_name:
-            [user.firstName, user.lastName].filter(Boolean).join(" ") ||
-            user.username ||
-            null,
-          phone: phone.trim(),
-          delivery_zone: selectedZone.name,
-          street_address: streetAddress.trim(),
-          landmark: landmark.trim() || null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "clerk_user_id" }
-      );
-
-      if (error) {
-        throw new Error(error.message);
-      }
+      await saveDeliveryAddress({
+        clerkUserId: user.id,
+        email: user.primaryEmailAddress?.emailAddress ?? null,
+        fullName:
+          [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
+          user.username ||
+          null,
+        phone: phone.trim(),
+        deliveryZone: selectedZone.name,
+        streetAddress: streetAddress.trim(),
+        landmark: landmark.trim() || null,
+      });
 
       Alert.alert("Saved", "Your delivery address has been updated.");
       router.back();
