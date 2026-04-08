@@ -16,6 +16,8 @@ type Order = {
   delivery_fee: number;
   total: number;
   created_at: string;
+  cancellation_reason?: string | null;
+  cancelled_at?: string | null;
 };
 
 type OrderItem = {
@@ -104,6 +106,10 @@ export default function AdminOrderDetailsClient({
     return () => ctx.revert();
   }, []);
 
+  const isCustomerCancelled =
+    order.status === "cancelled" &&
+    order.cancellation_reason === "Cancelled by customer";
+
   return (
     <main ref={pageRef} className="admin-page">
       <div className="admin-container">
@@ -186,6 +192,24 @@ export default function AdminOrderDetailsClient({
                         : "Customer pickup"}
                     </span>
                   </div>
+
+                  {order.cancellation_reason ? (
+                    <div className="flex justify-between gap-4">
+                      <span>Cancellation</span>
+                      <span className="text-right font-medium text-red-600">
+                        {order.cancellation_reason}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  {order.cancelled_at ? (
+                    <div className="flex justify-between gap-4">
+                      <span>Cancelled At</span>
+                      <span className="text-right font-medium text-stone-900">
+                        {formatOrderDateTime(order.cancelled_at)}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -256,6 +280,13 @@ export default function AdminOrderDetailsClient({
             <div className="admin-card-dark p-6">
               <h2 className="text-xl font-bold">Update Status</h2>
 
+              {isCustomerCancelled ? (
+                <div className="mt-4 rounded-2xl border border-red-400 bg-red-50 p-4 text-sm text-red-700">
+                  This order was cancelled by the customer. Admin status changes
+                  are locked for this order.
+                </div>
+              ) : null}
+
               <form action={updateOrderStatus} className="mt-4 space-y-3">
                 <input type="hidden" name="orderId" value={order.id} />
 
@@ -263,6 +294,7 @@ export default function AdminOrderDetailsClient({
                   name="status"
                   defaultValue={order.status}
                   className="admin-select"
+                  disabled={isCustomerCancelled}
                 >
                   {ORDER_STATUSES.map((status) => (
                     <option key={status} value={status}>
@@ -271,8 +303,12 @@ export default function AdminOrderDetailsClient({
                   ))}
                 </select>
 
-                <button type="submit" className="admin-btn-primary w-full">
-                  Save Status
+                <button
+                  type="submit"
+                  className="admin-btn-primary w-full"
+                  disabled={isCustomerCancelled}
+                >
+                  {isCustomerCancelled ? "Status Locked" : "Save Status"}
                 </button>
               </form>
 

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabaseAdmin } from "../../lib/supabase-admin";
+import AdminNotificationBell from "../../components/admin-notification-bell";
 
 export default async function AdminDashboardPage() {
   const [
@@ -65,13 +66,17 @@ export default async function AdminDashboardPage() {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <AdminNotificationBell />
+
             <Link href="/admin/products/new" className="admin-btn-primary">
               Add Product
             </Link>
+
             <Link href="/admin/orders" className="admin-btn-secondary">
               Manage Orders
             </Link>
+
             <Link href="/admin/delivery-fees" className="admin-btn-secondary">
               Delivery Fees
             </Link>
@@ -120,6 +125,13 @@ export default async function AdminDashboardPage() {
                 className="admin-btn-secondary"
               >
                 Set Delivery Fees
+              </Link>
+
+              <Link
+                href="/admin/notifications"
+                className="admin-btn-secondary"
+              >
+                Open Notifications
               </Link>
             </div>
           </div>

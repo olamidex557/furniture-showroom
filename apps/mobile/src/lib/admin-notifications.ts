@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-type CreateAdminNotificationInput = {
+export type CreateAdminNotificationParams = {
   title: string;
   message: string;
   type: string;
@@ -8,15 +8,19 @@ type CreateAdminNotificationInput = {
   entityId?: string | null;
 };
 
-export async function createAdminNotification(
-  input: CreateAdminNotificationInput
-) {
+export async function createAdminNotification({
+  title,
+  message,
+  type,
+  entityType,
+  entityId,
+}: CreateAdminNotificationParams) {
   const { error } = await supabase.from("admin_notifications").insert({
-    title: input.title,
-    message: input.message,
-    type: input.type,
-    entity_type: input.entityType ?? null,
-    entity_id: input.entityId ?? null,
+    title,
+    message,
+    type,
+    entity_type: entityType ?? null,
+    entity_id: entityId ?? null,
   });
 
   if (error) {

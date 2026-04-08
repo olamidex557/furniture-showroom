@@ -1,22 +1,17 @@
-import type { Metadata } from "next";
-import { ClerkProvider } from "@clerk/nextjs";
 import "./globals.css";
-
-export const metadata: Metadata = {
-  title: "Furniture Admin",
-  description: "Furniture showroom admin dashboard",
-};
+import type { ReactNode } from "react";
+import Providers from "../components/providers";
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: {
+  children: ReactNode;
+}) {
   return (
-    <ClerkProvider>
-      <html lang="en">
-        <body>{children}</body>
-      </html>
-    </ClerkProvider>
+    <html lang="en">
+      <body>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
   );
 }

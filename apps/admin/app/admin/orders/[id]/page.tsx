@@ -24,6 +24,32 @@ async function updateOrderStatus(formData: FormData) {
 
   const dto = parsed.data;
 
+  const { data: existingOrder, error: existingOrderError } = await supabaseAdmin
+    .from("orders")
+    .select("id, status, cancellation_reason")
+    .eq("id", dto.orderId)
+    .single();
+
+  if (existingOrderError || !existingOrder) {
+    redirect(
+      `/admin/orders/${dto.orderId}?error=${encodeURIComponent(
+        existingOrderError?.message || "Order not found."
+      )}`
+    );
+  }
+
+  const isCustomerCancelled =
+    existingOrder.status === "cancelled" &&
+    existingOrder.cancellation_reason === "Cancelled by customer";
+
+  if (isCustomerCancelled) {
+    redirect(
+      `/admin/orders/${dto.orderId}?error=${encodeURIComponent(
+        "Customer-cancelled orders cannot be modified by admin."
+      )}`
+    );
+  }
+
   const { error } = await supabaseAdmin
     .from("orders")
     .update({
@@ -65,7 +91,9 @@ export default async function AdminOrderDetailsPage({
       total,
       status,
       created_at,
-      clerk_user_id
+      clerk_user_id,
+      cancellation_reason,
+      cancelled_at
     `)
     .eq("id", id)
     .single();

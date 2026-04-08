@@ -16,6 +16,8 @@ type Order = {
   delivery_fee: number;
   total: number;
   created_at: string;
+  cancellation_reason?: string | null;
+  cancelled_at?: string | null;
 };
 
 type Props = {
@@ -48,6 +50,13 @@ function formatOrderDate(value: string) {
     hour12: false,
     timeZone: "UTC",
   }).format(new Date(value));
+}
+
+function formatCurrency(value: number | string | null | undefined) {
+  return new Intl.NumberFormat("en-NG", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Number(value ?? 0));
 }
 
 export default function AdminOrdersClient({
@@ -218,134 +227,162 @@ export default function AdminOrdersClient({
           </div>
         ) : (
           <div className="grid gap-5">
-            {filteredOrders.map((order) => (
-              <div key={order.id} className="order-card admin-card p-6">
-                <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr_0.9fr]">
-                  <div>
-                    <div className="mb-4 flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-lg font-bold text-stone-950">
-                          Order #{order.id.slice(0, 8)}
+            {filteredOrders.map((order) => {
+              const isCustomerCancelled =
+                order.status === "cancelled" &&
+                order.cancellation_reason === "Cancelled by customer";
+
+              return (
+                <div key={order.id} className="order-card admin-card p-6">
+                  <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr_0.9fr]">
+                    <div>
+                      <div className="mb-4 flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-lg font-bold text-stone-950">
+                            Order #{order.id.slice(0, 8)}
+                          </p>
+                          <p className="mt-1 text-sm text-stone-500">
+                            {formatOrderDate(order.created_at)}
+                          </p>
+                        </div>
+
+                        <span className={getStatusBadgeClass(order.status)}>
+                          {order.status}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2 text-sm text-stone-600">
+                        <p>
+                          <span className="font-semibold text-stone-900">
+                            Customer:
+                          </span>{" "}
+                          {order.customer_name || "No name"}
                         </p>
-                        <p className="mt-1 text-sm text-stone-500">
-                          {formatOrderDate(order.created_at)}
+
+                        <p>
+                          <span className="font-semibold text-stone-900">
+                            Phone:
+                          </span>{" "}
+                          {order.phone || "No phone"}
                         </p>
-                      </div>
 
-                      <span className={getStatusBadgeClass(order.status)}>
-                        {order.status}
-                      </span>
-                    </div>
+                        <p>
+                          <span className="font-semibold text-stone-900">
+                            Delivery:
+                          </span>{" "}
+                          <span className="capitalize">
+                            {order.delivery_method}
+                          </span>
+                        </p>
 
-                    <div className="space-y-2 text-sm text-stone-600">
-                      <p>
-                        <span className="font-semibold text-stone-900">
-                          Customer:
-                        </span>{" "}
-                        {order.customer_name || "No name"}
-                      </p>
+                        <p className="break-all">
+                          <span className="font-semibold text-stone-900">
+                            User ID:
+                          </span>{" "}
+                          {order.clerk_user_id || "No user id"}
+                        </p>
 
-                      <p>
-                        <span className="font-semibold text-stone-900">
-                          Phone:
-                        </span>{" "}
-                        {order.phone || "No phone"}
-                      </p>
+                        <p>
+                          <span className="font-semibold text-stone-900">
+                            Address:
+                          </span>{" "}
+                          {order.delivery_method === "delivery"
+                            ? order.address || "No address"
+                            : "Customer pickup"}
+                        </p>
 
-                      <p>
-                        <span className="font-semibold text-stone-900">
-                          Delivery:
-                        </span>{" "}
-                        <span className="capitalize">
-                          {order.delivery_method}
-                        </span>
-                      </p>
-
-                      <p className="break-all">
-                        <span className="font-semibold text-stone-900">
-                          User ID:
-                        </span>{" "}
-                        {order.clerk_user_id || "No user id"}
-                      </p>
-
-                      <p>
-                        <span className="font-semibold text-stone-900">
-                          Address:
-                        </span>{" "}
-                        {order.delivery_method === "delivery"
-                          ? order.address || "No address"
-                          : "Customer pickup"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="admin-card-soft p-4">
-                    <p className="mb-3 text-sm font-semibold text-stone-700">
-                      Order Summary
-                    </p>
-
-                    <div className="space-y-2 text-sm text-stone-600">
-                      <div className="flex justify-between gap-4">
-                        <span>Subtotal</span>
-                        <span className="font-semibold text-stone-900">
-                          ₦{Number(order.subtotal).toLocaleString()}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between gap-4">
-                        <span>Delivery Fee</span>
-                        <span className="font-semibold text-stone-900">
-                          ₦{Number(order.delivery_fee).toLocaleString()}
-                        </span>
-                      </div>
-
-                      <div className="mt-3 flex justify-between gap-4 border-t border-stone-200 pt-3">
-                        <span className="font-semibold text-stone-900">
-                          Total
-                        </span>
-                        <span className="font-bold text-stone-950">
-                          ₦{Number(order.total).toLocaleString()}
-                        </span>
+                        {order.cancellation_reason ? (
+                          <p>
+                            <span className="font-semibold text-stone-900">
+                              Cancellation:
+                            </span>{" "}
+                            <span className="text-red-600">
+                              {order.cancellation_reason}
+                            </span>
+                          </p>
+                        ) : null}
                       </div>
                     </div>
-                  </div>
 
-                  <div className="admin-card-dark p-4">
-                    <p className="mb-3 text-sm font-semibold text-stone-300">
-                      Actions
-                    </p>
+                    <div className="admin-card-soft p-4">
+                      <p className="mb-3 text-sm font-semibold text-stone-700">
+                        Order Summary
+                      </p>
 
-                    <div className="space-y-3">
-                      <form action={updateOrderStatus} className="space-y-3">
-                        <input type="hidden" name="orderId" value={order.id} />
+                      <div className="space-y-2 text-sm text-stone-600">
+                        <div className="flex justify-between gap-4">
+                          <span>Subtotal</span>
+                          <span className="font-semibold text-stone-900">
+                            ₦{formatCurrency(order.subtotal)}
+                          </span>
+                        </div>
 
-                        <select
-                          name="status"
-                          defaultValue={order.status}
-                          className="admin-select"
+                        <div className="flex justify-between gap-4">
+                          <span>Delivery Fee</span>
+                          <span className="font-semibold text-stone-900">
+                            ₦{formatCurrency(order.delivery_fee)}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 flex justify-between gap-4 border-t border-stone-200 pt-3">
+                          <span className="font-semibold text-stone-900">
+                            Total
+                          </span>
+                          <span className="font-bold text-stone-950">
+                            ₦{formatCurrency(order.total)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="admin-card-dark p-4">
+                      <p className="mb-3 text-sm font-semibold text-stone-300">
+                        Actions
+                      </p>
+
+                      {isCustomerCancelled ? (
+                        <div className="mb-3 rounded-2xl border border-red-400 bg-red-50 p-3 text-sm text-red-700">
+                          Customer-cancelled order. Status editing is locked.
+                        </div>
+                      ) : null}
+
+                      <div className="space-y-3">
+                        <form action={updateOrderStatus} className="space-y-3">
+                          <input type="hidden" name="orderId" value={order.id} />
+
+                          <select
+                            name="status"
+                            defaultValue={order.status}
+                            className="admin-select"
+                            disabled={isCustomerCancelled}
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="processing">Processing</option>
+                            <option value="completed">Completed</option>
+                            <option value="cancelled">Cancelled</option>
+                          </select>
+
+                          <button
+                            type="submit"
+                            className="admin-btn-primary w-full"
+                            disabled={isCustomerCancelled}
+                          >
+                            {isCustomerCancelled ? "Status Locked" : "Save Status"}
+                          </button>
+                        </form>
+
+                        <Link
+                          href={`/admin/orders/${order.id}`}
+                          className="admin-btn-secondary w-full"
                         >
-                          <option value="pending">Pending</option>
-                          <option value="processing">Processing</option>
-                          <option value="completed">Completed</option>
-                          <option value="cancelled">Cancelled</option>
-                        </select>
-
-                        <button type="submit" className="admin-btn-primary w-full">
-                          Save Status
-                        </button>
-                      </form>
-
-                      <Link
-                        href={`/admin/orders/${order.id}`}
-                        className="admin-btn-secondary w-full"
-                      >
-                        View Details
-                      </Link>
+                          View Details
+                        </Link>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
