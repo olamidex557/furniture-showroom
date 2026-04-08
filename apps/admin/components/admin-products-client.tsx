@@ -25,6 +25,22 @@ type Props = {
   toggleAvailability: (formData: FormData) => Promise<void>;
 };
 
+function formatProductDate(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "UTC",
+  }).format(new Date(value));
+}
+
+function formatProductCurrency(value: number | string | null | undefined) {
+  return new Intl.NumberFormat("en-NG", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Number(value ?? 0));
+}
+
 export default function AdminProductsClient({
   products,
   toggleAvailability,
@@ -82,8 +98,8 @@ export default function AdminProductsClient({
         visibility === "all"
           ? true
           : visibility === "visible"
-          ? product.is_available
-          : !product.is_available;
+            ? product.is_available
+            : !product.is_available;
 
       return matchesSearch && matchesVisibility;
     });
@@ -217,7 +233,7 @@ export default function AdminProductsClient({
                           {product.category || "Uncategorized"}
                         </p>
                         <p className="mt-3 text-base font-semibold text-stone-900">
-                          ₦{Number(product.price).toLocaleString()}
+                          ₦{formatProductCurrency(product.price)}
                         </p>
                         <p className="mt-2 text-xs text-stone-500">
                           #{product.id.slice(0, 8)}
@@ -261,7 +277,7 @@ export default function AdminProductsClient({
                           <span>Created</span>
                           <span className="text-xs font-medium text-stone-900">
                             {product.created_at
-                              ? new Date(product.created_at).toLocaleDateString()
+                              ? formatProductDate(product.created_at)
                               : "N/A"}
                           </span>
                         </div>

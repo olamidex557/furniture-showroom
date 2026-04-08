@@ -49,6 +49,26 @@ function getStatusBadgeClass(status: string) {
   }
 }
 
+function formatOrderDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).format(new Date(value));
+}
+
+function formatOrderCurrency(value: number | string | null | undefined) {
+  return new Intl.NumberFormat("en-NG", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Number(value ?? 0));
+}
+
 export default function AdminOrderDetailsClient({
   order,
   items,
@@ -115,7 +135,7 @@ export default function AdminOrderDetailsClient({
                     Order #{order.id.slice(0, 8)}
                   </h2>
                   <p className="mt-1 text-sm text-stone-500">
-                    {new Date(order.created_at).toLocaleString()}
+                    {formatOrderDateTime(order.created_at)}
                   </p>
                 </div>
 
@@ -189,13 +209,12 @@ export default function AdminOrderDetailsClient({
                           {item.products?.[0]?.name ?? "Product"}
                         </p>
                         <p className="mt-1 text-sm text-stone-500">
-                          {item.quantity} × ₦
-                          {Number(item.unit_price).toLocaleString()}
+                          {item.quantity} × ₦{formatOrderCurrency(item.unit_price)}
                         </p>
                       </div>
 
                       <p className="font-semibold text-stone-900">
-                        ₦{Number(item.line_total).toLocaleString()}
+                        ₦{formatOrderCurrency(item.line_total)}
                       </p>
                     </div>
                   ))}
@@ -214,21 +233,21 @@ export default function AdminOrderDetailsClient({
                 <div className="flex justify-between gap-4">
                   <span>Subtotal</span>
                   <span className="font-medium text-stone-900">
-                    ₦{Number(order.subtotal).toLocaleString()}
+                    ₦{formatOrderCurrency(order.subtotal)}
                   </span>
                 </div>
 
                 <div className="flex justify-between gap-4">
                   <span>Delivery Fee</span>
                   <span className="font-medium text-stone-900">
-                    ₦{Number(order.delivery_fee).toLocaleString()}
+                    ₦{formatOrderCurrency(order.delivery_fee)}
                   </span>
                 </div>
 
                 <div className="flex justify-between gap-4 border-t border-stone-200 pt-3">
                   <span className="font-semibold text-stone-900">Total</span>
                   <span className="text-lg font-bold text-stone-950">
-                    ₦{Number(order.total).toLocaleString()}
+                    ₦{formatOrderCurrency(order.total)}
                   </span>
                 </div>
               </div>

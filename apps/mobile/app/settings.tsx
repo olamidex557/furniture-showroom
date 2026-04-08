@@ -27,6 +27,7 @@ type MenuItemProps = {
   label: string;
   value?: string;
   onPress: () => void;
+  danger?: boolean;
 };
 
 export default function SettingsScreen() {
@@ -123,7 +124,13 @@ export default function SettingsScreen() {
             marginBottom: 24,
           }}
         >
-          <Text style={{ fontSize: 24, fontWeight: "700", color: COLORS.textPrimary }}>
+          <Text
+            style={{
+              fontSize: 24,
+              fontWeight: "700",
+              color: COLORS.textPrimary,
+            }}
+          >
             Settings
           </Text>
 
@@ -174,6 +181,18 @@ export default function SettingsScreen() {
         </View>
 
         {isSignedIn ? (
+          <View style={card}>
+            <MenuItem
+              icon="trash-outline"
+              label="Delete Account"
+              value="Permanently remove your account"
+              danger
+              onPress={() => router.push("/delete-account" as any)}
+            />
+          </View>
+        ) : null}
+
+        {isSignedIn ? (
           <Pressable onPress={handleLogout} style={logoutBtn}>
             <Text style={{ color: "#B91C1C", fontWeight: "700" }}>
               Logout
@@ -219,7 +238,17 @@ const logoutBtn = {
   marginTop: 10,
 } as const;
 
-function MenuItem({ icon, label, value, onPress }: MenuItemProps) {
+function MenuItem({
+  icon,
+  label,
+  value,
+  onPress,
+  danger,
+}: MenuItemProps) {
+  const iconColor = danger ? "#B91C1C" : COLORS.textPrimary;
+  const textColor = danger ? "#B91C1C" : COLORS.textPrimary;
+  const valueColor = danger ? "#B91C1C" : COLORS.textSecondary;
+
   return (
     <Pressable
       onPress={onPress}
@@ -229,15 +258,20 @@ function MenuItem({ icon, label, value, onPress }: MenuItemProps) {
         paddingVertical: 14,
       }}
     >
-      <Ionicons name={icon} size={20} color={COLORS.textPrimary} style={{ marginRight: 12 }} />
+      <Ionicons
+        name={icon}
+        size={20}
+        color={iconColor}
+        style={{ marginRight: 12 }}
+      />
 
       <View style={{ flex: 1 }}>
-        <Text style={{ fontWeight: "600", color: COLORS.textPrimary }}>
+        <Text style={{ fontWeight: "600", color: textColor }}>
           {label}
         </Text>
 
         {value ? (
-          <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>
+          <Text style={{ fontSize: 12, color: valueColor }}>
             {value}
           </Text>
         ) : null}
