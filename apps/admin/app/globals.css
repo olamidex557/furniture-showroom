@@ -21,6 +21,27 @@
   --admin-info-text: #1d4ed8;
 }
 
+html.dark {
+  --admin-bg: #020617;
+  --admin-bg-soft: #0f172a;
+  --admin-card: #0f172a;
+  --admin-border: #334155;
+  --admin-text: #f8fafc;
+  --admin-text-soft: #cbd5e1;
+  --admin-primary: #f8fafc;
+  --admin-primary-hover: #e2e8f0;
+  --admin-accent: #1e293b;
+  --admin-warm: #292524;
+  --admin-success-bg: #14532d;
+  --admin-success-text: #dcfce7;
+  --admin-warning-bg: #78350f;
+  --admin-warning-text: #fef3c7;
+  --admin-danger-bg: #7f1d1d;
+  --admin-danger-text: #fee2e2;
+  --admin-info-bg: #1e3a8a;
+  --admin-info-text: #dbeafe;
+}
+
 html,
 body {
   background: linear-gradient(to bottom right, #fafaf9, #ffffff, #fffbeb);
@@ -177,4 +198,97 @@ body {
 .admin-badge-neutral {
   background: #e7e5e4;
   color: #44403c;
+}
+
+html.dark body {
+  background: #020617;
+  color: #e5e7eb;
+}
+
+html.dark .admin-page {
+  background: #020617;
+}
+
+html.dark .admin-container {
+  color: #e5e7eb;
+}
+
+html.dark .admin-card {
+  background: #0f172a;
+  border-color: #334155;
+  color: #e5e7eb;
+}
+
+html.dark .admin-card-soft {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e5e7eb;
+}
+
+html.dark .admin-card-dark {
+  background: #020617;
+  border-color: #334155;
+  color: #e5e7eb;
+}
+
+html.dark .admin-title,
+html.dark .text-stone-950,
+html.dark .text-stone-900 {
+  color: #f8fafc !important;
+}
+
+html.dark .admin-subtitle,
+html.dark .text-stone-700,
+html.dark .text-stone-600,
+html.dark .text-stone-500 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .admin-btn-secondary {
+  background: #1e293b;
+  color: #f8fafc;
+  border-color: #475569;
+}
+
+html.dark .admin-btn-secondary:hover {
+  background: #334155;
+}
+
+html.dark .admin-btn-primary {
+  background: #f8fafc;
+  color: #020617;
+  border-color: #f8fafc;
+}
+
+html.dark .admin-btn-primary:hover {
+  background: #e2e8f0;
+}
+
+html.dark .admin-input,
+html.dark .admin-select,
+html.dark .admin-textarea,
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background: #020617;
+  color: #f8fafc;
+  border-color: #475569;
+}
+
+html.dark .admin-label {
+  color: #e2e8f0;
+}
+
+html.dark .admin-badge-neutral {
+  background: #334155;
+  color: #e2e8f0;
+}
+
+html.dark .bg-stone-50,
+html.dark .bg-stone-100 {
+  background-color: #1e293b !important;
+}
+
+html.dark .border-stone-200 {
+  border-color: #334155 !important;
 }

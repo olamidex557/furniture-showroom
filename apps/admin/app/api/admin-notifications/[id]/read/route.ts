@@ -1,25 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-function getSupabaseAdmin() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-  }
-
-  if (!serviceRoleKey) {
-    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
-  }
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
+import { supabaseAdmin } from "../../../../../lib/supabase-admin";
 
 export async function PATCH(
   _request: Request,
@@ -27,37 +7,30 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const supabase = getSupabaseAdmin();
 
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("admin_notifications")
       .update({
         is_read: true,
-        read_at: new Date().toISOString(),
       })
       .eq("id", id);
 
     if (error) {
+      console.error("PATCH /api/admin-notifications/[id]/read error:", error);
       return NextResponse.json(
-        { error: error.message || "Failed to mark notification as read." },
-        { status: 400 }
+        { error: error.message },
+        { status: 500 }
       );
     }
 
-    return NextResponse.json(
-      {
-        success: true,
-        message: "Notification marked as read.",
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Admin notification single PATCH error:", error);
+    console.error("PATCH /api/admin-notifications/[id]/read fatal:", error);
 
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Internal server error.",
+          error instanceof Error ? error.message : "Failed to mark notification as read.",
       },
       { status: 500 }
     );

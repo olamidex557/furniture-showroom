@@ -1,4 +1,6 @@
 import Link from "next/link";
+import AdminLogoutButton from "../../components/admin-logout-button";
+import AdminThemeToggle from "../../components/admin-theme-toggle";
 import { supabaseAdmin } from "../../lib/supabase-admin";
 import AdminNotificationBell from "../../components/admin-notification-bell";
 import AdminDashboardRealtime from "../../components/admin-dashboard-realtime";
@@ -18,13 +20,13 @@ type OrderItemRow = {
   quantity: number | null;
   line_total: number | null;
   products:
-    | {
-        name: string | null;
-      }
-    | {
-        name: string | null;
-      }[]
-    | null;
+  | {
+    name: string | null;
+  }
+  | {
+    name: string | null;
+  }[]
+  | null;
 };
 
 function formatCurrency(value: number | string | null | undefined) {
@@ -155,11 +157,13 @@ export default async function AdminDashboardPage() {
   ]);
 
   if (ordersResult.error) {
-    throw new Error(ordersResult.error.message);
+    console.error("ordersResult.error", ordersResult.error);
+    throw new Error(`Orders query failed: ${ordersResult.error.message}`);
   }
 
   if (orderItemsResult.error) {
-    throw new Error(orderItemsResult.error.message);
+    console.error("orderItemsResult.error", orderItemsResult.error);
+    throw new Error(`Order items query failed: ${orderItemsResult.error.message}`);
   }
 
   const orders = (ordersResult.data ?? []) as OrderRow[];
@@ -381,6 +385,10 @@ export default async function AdminDashboardPage() {
             <Link href="/admin/delivery-fees" className="admin-btn-secondary">
               Delivery Fees
             </Link>
+
+            <AdminThemeToggle />
+
+            <AdminLogoutButton />
           </div>
         </div>
 

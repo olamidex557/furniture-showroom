@@ -1,59 +1,42 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-function getSupabaseAdmin() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-  }
-
-  if (!serviceRoleKey) {
-    throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
-  }
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
+import { supabaseAdmin } from "../../../lib/supabase-admin";
 
 export async function GET() {
   try {
-    const supabase = getSupabaseAdmin();
-
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("admin_notifications")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .select(`
+        id,
+        title,
+        message,
+        type,
+        entity_type,
+        entity_id,
+        is_read,
+        created_at,
+        read_at
+      `)
+      .order("created_at", { ascending: false })
+      .limit(20);
 
     if (error) {
+      console.error("GET /api/admin-notifications error:", error);
       return NextResponse.json(
-        { error: error.message || "Failed to load notifications." },
-        { status: 400 }
+        { error: error.message },
+        { status: 500 }
       );
     }
 
-    const unreadCount = (data ?? []).filter((item) => !item.is_read).length;
-
-    return NextResponse.json(
-      {
-        success: true,
-        data: data ?? [],
-        unreadCount,
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({
+      data: data ?? [],
+    });
   } catch (error) {
-    console.error("Admin notifications GET error:", error);
+    console.error("GET /api/admin-notifications fatal:", error);
 
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Internal server error.",
+          error instanceof Error ? error.message : "Failed to load notifications.",
       },
       { status: 500 }
     );
@@ -62,37 +45,29 @@ export async function GET() {
 
 export async function PATCH() {
   try {
-    const supabase = getSupabaseAdmin();
-
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("admin_notifications")
       .update({
         is_read: true,
-        read_at: new Date().toISOString(),
       })
       .eq("is_read", false);
 
     if (error) {
+      console.error("PATCH /api/admin-notifications error:", error);
       return NextResponse.json(
-        { error: error.message || "Failed to mark all as read." },
-        { status: 400 }
+        { error: error.message },
+        { status: 500 }
       );
     }
 
-    return NextResponse.json(
-      {
-        success: true,
-        message: "All notifications marked as read.",
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Admin notifications PATCH error:", error);
+    console.error("PATCH /api/admin-notifications fatal:", error);
 
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Internal server error.",
+          error instanceof Error ? error.message : "Failed to update notifications.",
       },
       { status: 500 }
     );
