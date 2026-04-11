@@ -34,6 +34,7 @@ type Order = {
   delivery_fee: number;
   total: number;
   created_at: string;
+  payment_status?: string | null;
 };
 
 function formatCurrency(value: number | null | undefined) {
@@ -88,6 +89,44 @@ function getStatusMeta(status: string) {
         label: "Pending",
         bg: "#FEF3C7",
         text: "#B45309",
+      };
+  }
+}
+
+function getPaymentStatusMeta(status: string | null | undefined) {
+  const normalized = (status ?? "unpaid").toLowerCase();
+
+  switch (normalized) {
+    case "paid":
+      return {
+        label: "Paid",
+        bg: "#DCFCE7",
+        text: "#166534",
+      };
+    case "initiated":
+      return {
+        label: "Payment Started",
+        bg: "#DBEAFE",
+        text: "#1D4ED8",
+      };
+    case "pending":
+      return {
+        label: "Payment Pending",
+        bg: "#FEF3C7",
+        text: "#B45309",
+      };
+    case "failed":
+      return {
+        label: "Payment Failed",
+        bg: "#FEE2E2",
+        text: "#B91C1C",
+      };
+    case "unpaid":
+    default:
+      return {
+        label: "Unpaid",
+        bg: "#F3F4F6",
+        text: "#374151",
       };
   }
 }
@@ -151,8 +190,7 @@ export default function OrderDetailsScreen() {
 
         const { data: itemsData, error: itemsError } = await supabase
           .from("order_items")
-          .select(
-            `
+          .select(`
             id,
             quantity,
             unit_price,
@@ -160,8 +198,7 @@ export default function OrderDetailsScreen() {
             products (
               name
             )
-          `
-          )
+          `)
           .eq("order_id", orderId);
 
         if (itemsError) {
@@ -197,6 +234,10 @@ export default function OrderDetailsScreen() {
   const statusMeta = useMemo(() => {
     return getStatusMeta(order?.status ?? "pending");
   }, [order?.status]);
+
+  const paymentStatusMeta = useMemo(() => {
+    return getPaymentStatusMeta(order?.payment_status ?? "unpaid");
+  }, [order?.payment_status]);
 
   if (loading) {
     return (
@@ -376,23 +417,44 @@ export default function OrderDetailsScreen() {
               </Text>
             </View>
 
-            <View
-              style={{
-                backgroundColor: statusMeta.bg,
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderRadius: 999,
-              }}
-            >
-              <Text
+            <View style={{ alignItems: "flex-end", gap: 8 }}>
+              <View
                 style={{
-                  color: statusMeta.text,
-                  fontWeight: "800",
-                  fontSize: 12,
+                  backgroundColor: statusMeta.bg,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 999,
                 }}
               >
-                {statusMeta.label}
-              </Text>
+                <Text
+                  style={{
+                    color: statusMeta.text,
+                    fontWeight: "800",
+                    fontSize: 12,
+                  }}
+                >
+                  {statusMeta.label}
+                </Text>
+              </View>
+
+              <View
+                style={{
+                  backgroundColor: paymentStatusMeta.bg,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 999,
+                }}
+              >
+                <Text
+                  style={{
+                    color: paymentStatusMeta.text,
+                    fontWeight: "800",
+                    fontSize: 12,
+                  }}
+                >
+                  {paymentStatusMeta.label}
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -682,6 +744,19 @@ export default function OrderDetailsScreen() {
             </Text>
           </View>
         </View>
+
+        {errorMessage ? (
+          <Text
+            style={{
+              marginTop: 12,
+              color: "#B91C1C",
+              textAlign: "center",
+              fontSize: 14,
+            }}
+          >
+            {errorMessage}
+          </Text>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

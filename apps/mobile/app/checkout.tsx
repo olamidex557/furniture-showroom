@@ -11,11 +11,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { MotiView } from "moti";
-import { useUser } from "@clerk/clerk-expo";
+import { useAuth, useUser } from "@clerk/clerk-expo";
+import * as WebBrowser from "expo-web-browser";
 import { supabase } from "../src/lib/supabase";
 import { useCart } from "../src/context/CartContext";
 import { COLORS } from "../src/constants/colors";
-import { sendInAppNotification } from "../src/lib/in-app-notifications";
 import AnimatedScreen from "../src/components/AnimatedScreen";
 import AnimatedCard from "../src/components/AnimatedCard";
 import {
@@ -27,6 +27,7 @@ import {
   type DeliveryZone,
 } from "../src/lib/delivery-zones";
 import { saveDeliveryAddress } from "../src/lib/api/save-delivery-address";
+import { initializePayment } from "../src/lib/api/initialize-payment";
 
 type DeliveryMethod = "delivery" | "pickup";
 
@@ -48,7 +49,8 @@ type LiveProductStock = {
 export default function CheckoutScreen() {
   const router = useRouter();
   const { user, isLoaded, isSignedIn } = useUser();
-  const { items, clearCart, syncStockSnapshot } = useCart();
+  const { getToken } = useAuth();
+  const { items, syncStockSnapshot } = useCart();
 
   const cartItems = items;
 
@@ -214,7 +216,9 @@ export default function CheckoutScreen() {
     syncStockSnapshot(liveProducts);
 
     for (const cartItem of cartItems) {
-      const live = liveProducts.find((product) => product.id === cartItem.productId);
+      const live = liveProducts.find(
+        (product) => product.id === cartItem.productId
+      );
 
       if (!live) {
         throw new Error(`${cartItem.name} could not be validated.`);
@@ -234,7 +238,7 @@ export default function CheckoutScreen() {
     return liveProducts;
   };
 
-  const handlePlaceOrder = async () => {
+  const handlePayNow = async () => {
     try {
       setPlacingOrder(true);
 
@@ -273,7 +277,7 @@ export default function CheckoutScreen() {
         return;
       }
 
-      const liveProducts = await validateLiveStock();
+      await validateLiveStock();
 
       const { data: order, error: orderError } = await supabase
         .from("orders")
@@ -284,6 +288,7 @@ export default function CheckoutScreen() {
           delivery_fee: finalDeliveryFee,
           total,
           status: "pending",
+          payment_status: "unpaid",
           delivery_method: dto.deliveryMethod,
           phone: dto.phone,
           address: dto.address,
@@ -296,16 +301,12 @@ export default function CheckoutScreen() {
       }
 
       for (const item of dto.items) {
-        const cartItem = cartItems.find((cart) => cart.productId === item.productId);
+        const cartItem = cartItems.find(
+          (cart) => cart.productId === item.productId
+        );
 
         if (!cartItem) {
           throw new Error("Cart item not found during order creation.");
-        }
-
-        const liveProduct = liveProducts.find((p) => p.id === item.productId);
-
-        if (!liveProduct) {
-          throw new Error("Live stock product not found.");
         }
 
         const { error: itemError } = await supabase.from("order_items").insert({
@@ -318,21 +319,6 @@ export default function CheckoutScreen() {
 
         if (itemError) {
           throw new Error(itemError.message);
-        }
-
-        const nextStock = Number(liveProduct.stock) - Number(item.quantity);
-
-        const { error: stockUpdateError } = await supabase
-          .from("products")
-          .update({
-            stock: nextStock,
-            is_available: nextStock > 0 ? liveProduct.is_available : false,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", item.productId);
-
-        if (stockUpdateError) {
-          throw new Error(stockUpdateError.message);
         }
       }
 
@@ -352,13 +338,14 @@ export default function CheckoutScreen() {
         console.log("Profile save skipped:", error);
       }
 
-      sendInAppNotification({
-        title: "Order Placed 🎉",
-        body: "Your order has been placed successfully.",
-      });
+      const token = await getToken();
 
-      clearCart();
-      router.replace("/checkout-success" as any);
+      if (!token) {
+        throw new Error("Authentication token not found. Please sign in again.");
+      }
+
+      const payment = await initializePayment(order.id, token);
+      await WebBrowser.openBrowserAsync(payment.authorization_url);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Something went wrong";
@@ -433,7 +420,7 @@ export default function CheckoutScreen() {
                   marginBottom: 18,
                 }}
               >
-                You need to sign in before placing an order.
+                You need to sign in before paying for an order.
               </Text>
 
               <Pressable
@@ -492,7 +479,7 @@ export default function CheckoutScreen() {
                 marginBottom: 18,
               }}
             >
-              Confirm your details and place your order.
+              Confirm your details and continue to payment.
             </Text>
           </MotiView>
 
@@ -826,7 +813,7 @@ export default function CheckoutScreen() {
             transition={{ type: "timing", duration: 380, delay: 280 }}
           >
             <Pressable
-              onPress={handlePlaceOrder}
+              onPress={handlePayNow}
               disabled={placingOrder || cartItems.length === 0}
               style={{
                 backgroundColor:
@@ -849,7 +836,7 @@ export default function CheckoutScreen() {
                     fontWeight: "700",
                   }}
                 >
-                  Place Order
+                  Pay Now
                 </Text>
               )}
             </Pressable>
