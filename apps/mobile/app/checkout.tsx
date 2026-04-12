@@ -345,7 +345,12 @@ export default function CheckoutScreen() {
       }
 
       const payment = await initializePayment(order.id, token);
+
       await WebBrowser.openBrowserAsync(payment.authorization_url);
+
+      router.replace(
+        `/payment-return?reference=${encodeURIComponent(payment.reference)}` as any
+      );
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Something went wrong";

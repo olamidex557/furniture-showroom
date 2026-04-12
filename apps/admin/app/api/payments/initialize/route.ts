@@ -107,7 +107,7 @@ export async function POST(request: Request) {
       email,
       amount: Math.round(amount * 100),
       reference,
-      callback_url: `${appUrl}/payment-return?reference=${reference}`,
+      callback_url: `${appUrl}/payment-return.html?reference=${reference}`,
       metadata: {
         order_id: order.id,
         clerk_user_id: userId,
